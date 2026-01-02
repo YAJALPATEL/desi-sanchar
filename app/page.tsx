@@ -10,6 +10,7 @@ import {
   Radio, TrendingUp, Mic2, PlayCircle, Image as ImageIcon, X, Send, UserPlus
 } from 'lucide-react'
 import { useTheme } from "next-themes"
+import heic2any from "heic2any"
 
 // Helper: Relative Time
 function timeAgo(dateStr: string) {
@@ -189,9 +190,38 @@ export default function HomePage() {
     }
   }
 
-  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0]
+      let file = e.target.files[0]
+
+      // 1. Check if it's HEIC (iPhone format)
+      if (file.name.toLowerCase().endsWith('.heic') || file.type === "image/heic") {
+        try {
+          setLoading(true) // Show loading while converting
+          const convertedBlob = await heic2any({
+            blob: file,
+            toType: "image/jpeg",
+            quality: 0.8
+          }) as Blob
+
+          // Convert Blob back to File
+          file = new File([convertedBlob], file.name.replace(/\.heic$/i, ".jpg"), {
+            type: "image/jpeg",
+          })
+          setLoading(false)
+        } catch (error) {
+          alert("Error converting HEIC image.")
+          setLoading(false)
+          return
+        }
+      }
+
+      // 2. Size Check (Limit to 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        alert("File is too big! Please select an image under 5MB.")
+        return
+      }
+
       setImageFile(file)
       setImagePreview(URL.createObjectURL(file))
     }
