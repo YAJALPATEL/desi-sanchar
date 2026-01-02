@@ -128,18 +128,19 @@ export default function HomePage() {
     }
   }
 
+  // === UPDATED: Mark Read Logic ===
   const markNotificationsRead = async () => {
     if (unreadCount > 0 && user) {
-      setUnreadCount(0)
-      await supabase.from('notifications').update({ is_read: true }).eq('user_id', user.id)
-      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })))
+      setUnreadCount(0) // Clear badge visually immediately
+      setNotifications(prev => prev.map(n => ({ ...n, is_read: true }))) // Update list visually
+      await supabase.from('notifications').update({ is_read: true }).eq('user_id', user.id) // Save to DB
     }
   }
 
   const toggleNotificationSlider = () => {
     if (!showNotifications) {
       setShowNotifications(true)
-      markNotificationsRead()
+      markNotificationsRead() // Mark read when opening
     } else {
       setShowNotifications(false)
     }
@@ -198,12 +199,15 @@ export default function HomePage() {
             <NavItem icon={<Home size={26} />} text="Home" active />
             <NavItem icon={<Search size={26} />} text="Explore" />
             <NavItem icon={<Mic2 size={26} />} text="Karaoke Mode" />
+
+            {/* === UPDATED NOTIFICATION BUTTON (Red Dot Logic) === */}
             <NavItem
               icon={<Bell size={26} />}
               text="Notifications"
               onClick={toggleNotificationSlider}
               badge={unreadCount > 0}
             />
+
             <NavItem icon={<User size={26} />} text="Profile" onClick={goToMyProfile} />
           </nav>
           <div className="mt-8">
@@ -573,7 +577,6 @@ function CommentsModal({ postId, currentUser, onClose }: any) {
             <div className="p-4 border-b border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-white/5">
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-8 h-8 rounded-full bg-gray-200 relative overflow-hidden">
-                  {/* === FIX: Added unoptimized here === */}
                   {postDetails.profiles?.avatar_url ? <Image src={postDetails.profiles.avatar_url} fill alt="u" unoptimized /> : null}
                 </div>
                 <span className="font-bold text-sm">{postDetails.profiles?.username}</span>
@@ -585,8 +588,6 @@ function CommentsModal({ postId, currentUser, onClose }: any) {
                   <Image src={postDetails.image_url} fill className="object-cover" alt="post" unoptimized />
                 </div>
               )}
-
-              {/* === NEW: Location in Comments Modal === */}
               {postDetails.location && (
                 <div className="flex items-center gap-1.5 text-xs font-medium text-gray-400 mt-2">
                   <MapPin size={14} className="text-crimson" />
@@ -626,7 +627,6 @@ function CommentItem({ comment, onReply, isReply }: any) {
   return (
     <div className="flex gap-3">
       <div className={`rounded-full bg-gray-200 dark:bg-white/10 flex items-center justify-center font-bold text-xs ${isReply ? 'w-6 h-6' : 'w-8 h-8'}`}>
-        {/* === FIX: Added unoptimized here === */}
         {comment.profiles?.avatar_url ? <Image src={comment.profiles.avatar_url} width={32} height={32} alt="u" className="rounded-full" unoptimized /> : comment.profiles?.username[0].toUpperCase()}
       </div>
       <div className="flex-1">

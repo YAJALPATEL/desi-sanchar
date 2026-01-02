@@ -6,7 +6,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Image from 'next/image'
 import {
     ArrowLeft, MapPin, Calendar, LogOut, Home, Search,
-    Bell, User, Sun, Moon, Mic2, X, Edit3, Trash2, Heart, MessageCircle, AlertTriangle, Send, Camera, Loader2, Lock
+    Bell, User, Sun, Moon, Mic2, X, Edit3, Trash2, Heart, MessageCircle, AlertTriangle, Send, Camera, Loader2, Lock, UserPlus
 } from 'lucide-react'
 import { useTheme } from "next-themes"
 
@@ -46,6 +46,11 @@ export default function UserProfile() {
     const [loading, setLoading] = useState(true)
     const [uploadingAvatar, setUploadingAvatar] = useState(false)
 
+    // Notification States
+    const [showNotifications, setShowNotifications] = useState(false)
+    const [notifications, setNotifications] = useState<any[]>([])
+    const [unreadCount, setUnreadCount] = useState(0)
+
     // Modals
     const [zoomImage, setZoomImage] = useState(false)
     const [showEditProfile, setShowEditProfile] = useState(false)
@@ -76,6 +81,7 @@ export default function UserProfile() {
             if (user) {
                 const { data: followStatus } = await supabase.from('follows').select('*').eq('follower_id', user.id).eq('following_id', id).single()
                 setIsFollowing(!!followStatus)
+                fetchNotifications(user.id)
             }
 
             setLoading(false)
@@ -93,6 +99,44 @@ export default function UserProfile() {
         })) || []
         setPosts(formatted)
     }
+
+    // === NOTIFICATION LOGIC ===
+    const fetchNotifications = async (userId: string) => {
+        const { data } = await supabase.from('notifications').select(`*, actor:actor_id(username, avatar_url)`).eq('user_id', userId).order('created_at', { ascending: false })
+        if (data) {
+            setNotifications(data)
+            const count = data.filter((n: any) => n.is_read === false).length
+            setUnreadCount(count)
+        }
+    }
+
+    // === FIX: Mark as Read Immediately ===
+    const markNotificationsRead = async () => {
+        if (unreadCount > 0 && currentUser) {
+            setUnreadCount(0) // Clear badge instantly
+            setNotifications(prev => prev.map(n => ({ ...n, is_read: true }))) // Update UI instantly
+            await supabase.from('notifications').update({ is_read: true }).eq('user_id', currentUser.id) // Update DB
+        }
+    }
+
+    const toggleNotificationSlider = () => {
+        if (!showNotifications) {
+            setShowNotifications(true)
+            markNotificationsRead() // Mark read when opening
+        } else {
+            setShowNotifications(false)
+        }
+    }
+
+    const handleNotificationClick = (notif: any) => {
+        if (notif.type === 'follow') {
+            router.push(`/profile/${notif.actor_id}`)
+            setShowNotifications(false)
+        } else if (notif.post_id) {
+            setShowNotifications(false)
+        }
+    }
+    // ===============================
 
     const openFollowersList = async () => {
         const { data } = await supabase.from('follows').select('profiles!follower_id(id, username, full_name, avatar_url)').eq('following_id', id)
@@ -212,7 +256,15 @@ export default function UserProfile() {
                         <NavItem icon={<Home size={26} />} text="Home" onClick={() => router.push('/')} />
                         <NavItem icon={<Search size={26} />} text="Explore" />
                         <NavItem icon={<Mic2 size={26} />} text="Karaoke Mode" />
-                        <NavItem icon={<Bell size={26} />} text="Notifications" badge="3" />
+
+                        {/* === NOTIFICATION BUTTON WITH DOT ONLY === */}
+                        <NavItem
+                            icon={<Bell size={26} />}
+                            text="Notifications"
+                            onClick={toggleNotificationSlider}
+                            badge={unreadCount > 0} // Passing boolean now
+                        />
+
                         <NavItem icon={<User size={26} />} text="Profile" onClick={goToMyProfile} active={currentUser?.id === profile.id} />
                     </nav>
                 </div>
@@ -273,10 +325,7 @@ export default function UserProfile() {
                         </div>
 
                         <div className="flex-1 mt-2 md:mt-0 md:mb-2">
-                            {/* REAL NAME (Large, Dark, Permanent) */}
                             <h1 className="text-3xl md:text-4xl font-black mb-1">{profile.full_name || profile.username}</h1>
-
-                            {/* USERNAME (Small, Gray, Editable) */}
                             <p className="text-gray-500 font-medium text-lg">@{profile.username.toLowerCase().replace(/\s/g, '')}</p>
                         </div>
 
@@ -385,15 +434,12 @@ export default function UserProfile() {
                         )}
                         <div className="p-6">
                             <p className="text-lg mb-4">{selectedPost.content}</p>
-
-                            {/* === NEW: Location in Profile Modal === */}
                             {selectedPost.location && (
                                 <div className="flex items-center gap-1.5 text-xs font-medium text-gray-400 mb-4">
                                     <MapPin size={14} className="text-crimson" />
                                     <span>{selectedPost.location}</span>
                                 </div>
                             )}
-
                             <div className="flex gap-8 border-t border-gray-100 dark:border-white/10 pt-4">
                                 <button
                                     onClick={() => toggleLikePost(selectedPost)}
@@ -461,6 +507,57 @@ export default function UserProfile() {
                     onClose={() => setActiveCommentPostId(null)}
                 />
             )}
+
+            {/* === NOTIFICATION SLIDER === */}
+            <div
+                className={`fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm transition-opacity duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] ${showNotifications ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
+                onClick={toggleNotificationSlider}
+            >
+                <div
+                    className={`
+               fixed bg-white dark:bg-[#111] shadow-2xl z-[110] transition-transform duration-700 ease-[cubic-bezier(0.32,0.72,0,1)]
+               lg:top-0 lg:h-full lg:w-[350px] lg:border-r lg:border-gray-200 lg:dark:border-white/5 
+               ${showNotifications ? 'lg:translate-x-0' : 'lg:-translate-x-full'}
+               lg:left-0 bottom-0 left-0 w-full h-[60vh] rounded-t-3xl
+               ${showNotifications ? 'translate-y-0' : 'translate-y-full'}
+             `}
+                    onClick={e => e.stopPropagation()}
+                >
+                    <div className="p-4 border-b border-gray-200 dark:border-white/10 flex justify-between items-center sticky top-0 bg-white dark:bg-[#111] z-10 rounded-t-3xl lg:rounded-none">
+                        <h2 className="font-bold text-lg">Notifications</h2>
+                        <button onClick={toggleNotificationSlider} className="p-2 hover:bg-gray-100 dark:hover:bg-white/10 rounded-full active:rotate-90 transition-transform"><X size={20} /></button>
+                    </div>
+
+                    <div className="p-2 space-y-1 overflow-y-auto h-[calc(100%-60px)] custom-scrollbar">
+                        {notifications.map((notif, index) => (
+                            <div
+                                key={notif.id}
+                                onClick={() => handleNotificationClick(notif)}
+                                className={`p-4 rounded-xl flex gap-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-white/5 transition-all ${notif.is_read ? 'opacity-70' : 'bg-crimson/5 border border-crimson/10'}`}
+                            >
+                                <div className="mt-1">
+                                    {notif.type === 'like' && <Heart size={18} className="text-red-500 fill-red-500 animate-bounce" />}
+                                    {notif.type === 'comment' && <MessageCircle size={18} className="text-blue-500 fill-blue-500" />}
+                                    {notif.type === 'follow' && <UserPlus size={18} className="text-green-500 fill-green-500" />}
+                                </div>
+                                <div className="flex-1">
+                                    <div className="flex items-center justify-between mb-1">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-5 h-5 rounded-full bg-gray-200 relative overflow-hidden">
+                                                {notif.actor?.avatar_url ? <Image src={notif.actor.avatar_url} fill alt="u" unoptimized /> : null}
+                                            </div>
+                                            <span className="font-bold text-sm">{notif.actor?.username}</span>
+                                        </div>
+                                    </div>
+                                    <p className="text-sm text-gray-800 dark:text-gray-200 leading-snug">{notif.message}</p>
+                                    <p className="text-[10px] text-gray-400 mt-2 font-medium">{timeAgo(notif.created_at)}</p>
+                                </div>
+                            </div>
+                        ))}
+                        {notifications.length === 0 && <div className="text-center py-10 text-gray-500">No notifications yet.</div>}
+                    </div>
+                </div>
+            </div>
 
         </div>
     )
@@ -593,7 +690,11 @@ function EditProfileModal({ profile, supabase, onClose, onUpdate }: any) {
 function NavItem({ icon, text, active, badge, onClick }: any) {
     return (
         <div onClick={onClick} className={`flex items-center gap-4 px-4 py-3.5 rounded-2xl cursor-pointer transition-all group ${active ? 'bg-crimson/10 text-crimson font-bold' : 'hover:bg-gray-100 dark:hover:bg-white/5 text-gray-600 dark:text-gray-400'}`}>
-            <div className="relative">{icon}{badge && <span className="absolute -top-1 -right-1 bg-crimson text-white text-[10px] w-4 h-4 flex items-center justify-center rounded-full border-2 border-white dark:border-black">{badge}</span>}</div>
+            <div className="relative">
+                {icon}
+                {/* === UPDATED: Render simple dot if badge is true === */}
+                {badge && <span className="absolute top-0 right-0 bg-crimson w-2.5 h-2.5 rounded-full border-2 border-white dark:border-black animate-pulse" />}
+            </div>
             <span className="text-xl tracking-tight">{text}</span>
         </div>
     )
