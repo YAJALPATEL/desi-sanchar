@@ -193,26 +193,36 @@ export default function HomePage() {
   const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       let file = e.target.files[0]
+      console.log("Original File:", file.name, file.type, file.size);
 
       // 1. Check if it's HEIC (iPhone format)
+      // Check extension OR file type (iPhone sometimes reports empty type for HEIC)
       if (file.name.toLowerCase().endsWith('.heic') || file.type === "image/heic") {
         try {
-          setLoading(true) // Show loading while converting
+          console.log("HEIC detected! Converting...");
+
+          // DYNAMIC IMPORT: Loads library only in the browser (Fixes server errors)
+          const heic2any = (await import("heic2any")).default;
+
           const convertedBlob = await heic2any({
             blob: file,
             toType: "image/jpeg",
             quality: 0.8
-          }) as Blob
+          });
 
-          // Convert Blob back to File
-          file = new File([convertedBlob], file.name.replace(/\.heic$/i, ".jpg"), {
+          // Handle case where it returns an array
+          const finalBlob = Array.isArray(convertedBlob) ? convertedBlob[0] : convertedBlob;
+
+          console.log("Conversion successful!", finalBlob);
+
+          // Create new JPG file
+          file = new File([finalBlob], file.name.replace(/\.heic$/i, ".jpg"), {
             type: "image/jpeg",
-          })
-          setLoading(false)
+          });
         } catch (error) {
-          alert("Error converting HEIC image.")
-          setLoading(false)
-          return
+          console.error("HEIC Conversion Failed:", error);
+          alert("Could not convert iPhone image. Try changing your Camera settings to 'Most Compatible'.");
+          return;
         }
       }
 
@@ -340,7 +350,13 @@ export default function HomePage() {
             <div className="flex justify-between items-center mt-2 pt-3 border-t border-gray-100 dark:border-white/5">
               <div className="flex gap-4 text-crimson">
                 <button className="hover:bg-crimson/10 p-2 rounded-full transition-colors active:scale-90"><Music size={22} /></button>
-                <input type="file" ref={fileInputRef} onChange={handleImageSelect} className="hidden" accept="image/*" />
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleImageSelect}
+                  className="hidden"
+                  accept="image/*, .heic, .HEIC"
+                />
                 <button onClick={() => fileInputRef.current?.click()} className="hover:bg-crimson/10 p-2 rounded-full transition-colors active:scale-90"><ImageIcon size={22} /></button>
                 <button className="hover:bg-crimson/10 p-2 rounded-full transition-colors active:scale-90"><Mic2 size={22} /></button>
               </div>
