@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import { useTheme } from "next-themes"
 import heic2any from "heic2any"
-
+import imageCompression from 'browser-image-compression';
 // Helper: Relative Time
 function timeAgo(dateStr: string) {
   const date = new Date(dateStr)
@@ -192,48 +192,39 @@ export default function HomePage() {
 
   const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      let file = e.target.files[0]
-      console.log("Original File:", file.name, file.type, file.size);
+      const originalFile = e.target.files[0];
 
-      // 1. Check if it's HEIC (iPhone format)
-      // Check extension OR file type (iPhone sometimes reports empty type for HEIC)
-      if (file.name.toLowerCase().endsWith('.heic') || file.type === "image/heic") {
-        try {
-          console.log("HEIC detected! Converting...");
+      // Options for the compressor
+      const options = {
+        maxSizeMB: 1,              // Compress to ~1MB
+        maxWidthOrHeight: 1920,    // Resize if huge
+        useWebWorker: true,        // Run in background (fast)
+        fileType: "image/jpeg"     // Force JPG (Fixes HEIC)
+      };
 
-          // DYNAMIC IMPORT: Loads library only in the browser (Fixes server errors)
-          const heic2any = (await import("heic2any")).default;
+      try {
+        setLoading(true); // Show spinner while working
+        console.log(`Original: ${originalFile.size / 1024 / 1024} MB`);
 
-          const convertedBlob = await heic2any({
-            blob: file,
-            toType: "image/jpeg",
-            quality: 0.8
-          });
+        // 1. Compress & Convert
+        const compressedBlob = await imageCompression(originalFile, options);
 
-          // Handle case where it returns an array
-          const finalBlob = Array.isArray(convertedBlob) ? convertedBlob[0] : convertedBlob;
+        // 2. Convert Blob back to File
+        const compressedFile = new File([compressedBlob], originalFile.name.replace(/\.heic$/i, ".jpg"), {
+          type: "image/jpeg",
+        });
 
-          console.log("Conversion successful!", finalBlob);
+        console.log(`Compressed: ${compressedFile.size / 1024 / 1024} MB`);
 
-          // Create new JPG file
-          file = new File([finalBlob], file.name.replace(/\.heic$/i, ".jpg"), {
-            type: "image/jpeg",
-          });
-        } catch (error) {
-          console.error("HEIC Conversion Failed:", error);
-          alert("Could not convert iPhone image. Try changing your Camera settings to 'Most Compatible'.");
-          return;
-        }
+        setImageFile(compressedFile);
+        setImagePreview(URL.createObjectURL(compressedFile));
+
+      } catch (error) {
+        console.error("Compression Error:", error);
+        alert("Could not process image. Please try another.");
+      } finally {
+        setLoading(false);
       }
-
-      // 2. Size Check (Limit to 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        alert("File is too big! Please select an image under 5MB.")
-        return
-      }
-
-      setImageFile(file)
-      setImagePreview(URL.createObjectURL(file))
     }
   }
 
@@ -355,7 +346,7 @@ export default function HomePage() {
                   ref={fileInputRef}
                   onChange={handleImageSelect}
                   className="hidden"
-                  accept="image/*, .heic, .HEIC"
+                  accept="image/*"
                 />
                 <button onClick={() => fileInputRef.current?.click()} className="hover:bg-crimson/10 p-2 rounded-full transition-colors active:scale-90"><ImageIcon size={22} /></button>
                 <button className="hover:bg-crimson/10 p-2 rounded-full transition-colors active:scale-90"><Mic2 size={22} /></button>

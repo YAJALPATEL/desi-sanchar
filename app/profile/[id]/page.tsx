@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { useTheme } from "next-themes"
 import heic2any from "heic2any"
+import imageCompression from 'browser-image-compression';
 
 // Helper: Relative Time
 function timeAgo(dateStr: string) {
@@ -131,50 +132,45 @@ export default function UserProfile() {
     }
 
     const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (!e.target.files || e.target.files.length === 0) return
+        if (!e.target.files || e.target.files[0]) return;
 
-        let file = e.target.files[0]
-        setUploadingAvatar(true)
+        const originalFile = e.target.files[0];
+        setUploadingAvatar(true);
 
         try {
-            // 1. Convert HEIC if needed
-            if (file.name.toLowerCase().endsWith('.heic') || file.type === "image/heic") {
-                const convertedBlob = await heic2any({
-                    blob: file,
-                    toType: "image/jpeg",
-                    quality: 0.8
-                }) as Blob
+            // 1. Compress & Convert
+            const options = {
+                maxSizeMB: 0.5,             // Profile pics can be smaller (0.5MB)
+                maxWidthOrHeight: 500,      // Resize to 500px is plenty
+                useWebWorker: true,
+                fileType: "image/jpeg"
+            };
 
-                file = new File([convertedBlob], file.name.replace(/\.heic$/i, ".jpg"), {
-                    type: "image/jpeg",
-                })
-            }
+            const compressedBlob = await imageCompression(originalFile, options);
+            const compressedFile = new File([compressedBlob], originalFile.name.replace(/\.heic$/i, ".jpg"), {
+                type: "image/jpeg",
+            });
 
-            // 2. Size Check
-            if (file.size > 5 * 1024 * 1024) {
-                alert("File is too big! Please select an image under 5MB.")
-                return
-            }
+            // 2. Upload Logic
+            const fileExt = "jpg"; // We know it's JPG now
+            const fileName = `${currentUser.id}-${Math.random()}.${fileExt}`;
+            const filePath = `avatars/${fileName}`;
 
-            // 3. Upload Process
-            const fileExt = file.name.split('.').pop()
-            const fileName = `${currentUser.id}-${Math.random()}.${fileExt}`
-            const filePath = `avatars/${fileName}`
+            const { error: uploadError } = await supabase.storage.from('post_images').upload(filePath, compressedFile);
+            if (uploadError) throw uploadError;
 
-            const { error: uploadError } = await supabase.storage.from('post_images').upload(filePath, file)
-            if (uploadError) throw uploadError
+            const { data: { publicUrl } } = supabase.storage.from('post_images').getPublicUrl(filePath);
 
-            const { data: { publicUrl } } = supabase.storage.from('post_images').getPublicUrl(filePath)
+            const { error: updateError } = await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', currentUser.id);
+            if (updateError) throw updateError;
 
-            const { error: updateError } = await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', currentUser.id)
-            if (updateError) throw updateError
-
-            setProfile({ ...profile, avatar_url: publicUrl })
+            setProfile({ ...profile, avatar_url: publicUrl });
 
         } catch (error: any) {
-            alert('Error uploading image: ' + error.message)
+            console.error(error);
+            alert('Error uploading image: ' + error.message);
         } finally {
-            setUploadingAvatar(false)
+            setUploadingAvatar(false);
         }
     }
     const confirmDelete = async () => {
