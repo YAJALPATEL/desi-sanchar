@@ -52,6 +52,23 @@ export default function HomePage() {
   const [unreadCount, setUnreadCount] = useState(0)
   const [followingIds, setFollowingIds] = useState<Set<string>>(new Set())
 
+  // === NEW: BACK BUTTON TRAP ===
+  useEffect(() => {
+    // 1. Push a "dummy" state to history
+    window.history.pushState(null, "", window.location.href);
+
+    // 2. Listen for the "Back" button press
+    const handleBackButton = () => {
+      // 3. If they press back, push them forward again instantly
+      window.history.pushState(null, "", window.location.href);
+    };
+
+    window.addEventListener("popstate", handleBackButton);
+
+    return () => {
+      window.removeEventListener("popstate", handleBackButton);
+    };
+  }, []);
   useEffect(() => {
     setMounted(true)
     const getData = async () => {

@@ -1,16 +1,24 @@
-import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { Inter } from "next/font/google"; // Switch to Google Fonts
 import "./globals.css";
-import Link from "next/link";
-import { ThemeProvider } from "@/components/theme-provider"; // Import this
-import { Home, Search, PlusSquare, Heart, User, MessageCircle } from "lucide-react";
+import { ThemeProvider } from "@/components/theme-provider"
 
+// Initialize the font
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Desi Sanchar",
-  description: "Connect via Music & Moments",
+  description: "Connect with your friends in Desi style.",
 };
+
+// === LOCK ZOOM & SCALE ===
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false, // Prevents pinch-zoom
+  themeColor: '#DC143C',
+}
 
 export default function RootLayout({
   children,
@@ -19,26 +27,17 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={inter.className}>
+      <body
+        // Apply the Google Font class here
+        className={`${inter.className} antialiased overscroll-none`}
+      >
         <ThemeProvider
           attribute="class"
-          defaultTheme="dark"
+          defaultTheme="system"
           enableSystem
           disableTransitionOnChange
         >
-          <div className="flex min-h-screen bg-white dark:bg-[#0a0a0a] text-black dark:text-white transition-colors duration-300">
-
-            {/* === SIDEBAR (Only visible if NOT on login page usually, but we keep it simple) === */}
-            {/* ... (Your Sidebar Code remains same, just ensure colors use dark: prefix) ... */}
-            {/* For now, to keep the layout code clean, I will assume you kept the previous sidebar code. 
-                  Just make sure to wrap everything inside ThemeProvider like I did here. 
-              */}
-
-            <main className="flex-1 min-h-screen relative">
-              {children}
-            </main>
-
-          </div>
+          {children}
         </ThemeProvider>
       </body>
     </html>
