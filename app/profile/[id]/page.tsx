@@ -9,8 +9,6 @@ import {
     Bell, User, Sun, Moon, Mic2, X, Edit3, Trash2, Heart, MessageCircle, AlertTriangle, Send, Camera, Loader2, Lock
 } from 'lucide-react'
 import { useTheme } from "next-themes"
-import heic2any from "heic2any"
-import imageCompression from 'browser-image-compression';
 
 // Helper: Relative Time
 function timeAgo(dateStr: string) {
@@ -132,47 +130,26 @@ export default function UserProfile() {
     }
 
     const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (!e.target.files || e.target.files[0]) return;
-
-        const originalFile = e.target.files[0];
-        setUploadingAvatar(true);
-
+        if (!e.target.files || e.target.files.length === 0) return
+        setUploadingAvatar(true)
         try {
-            // 1. Compress & Convert
-            const options = {
-                maxSizeMB: 0.5,             // Profile pics can be smaller (0.5MB)
-                maxWidthOrHeight: 500,      // Resize to 500px is plenty
-                useWebWorker: true,
-                fileType: "image/jpeg"
-            };
-
-            const compressedBlob = await imageCompression(originalFile, options);
-            const compressedFile = new File([compressedBlob], originalFile.name.replace(/\.heic$/i, ".jpg"), {
-                type: "image/jpeg",
-            });
-
-            // 2. Upload Logic
-            const fileExt = "jpg"; // We know it's JPG now
-            const fileName = `${currentUser.id}-${Math.random()}.${fileExt}`;
-            const filePath = `avatars/${fileName}`;
-
-            const { error: uploadError } = await supabase.storage.from('post_images').upload(filePath, compressedFile);
-            if (uploadError) throw uploadError;
-
-            const { data: { publicUrl } } = supabase.storage.from('post_images').getPublicUrl(filePath);
-
-            const { error: updateError } = await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', currentUser.id);
-            if (updateError) throw updateError;
-
-            setProfile({ ...profile, avatar_url: publicUrl });
-
+            const file = e.target.files[0]
+            const fileExt = file.name.split('.').pop()
+            const fileName = `${currentUser.id}-${Math.random()}.${fileExt}`
+            const filePath = `avatars/${fileName}`
+            const { error: uploadError } = await supabase.storage.from('post_images').upload(filePath, file)
+            if (uploadError) throw uploadError
+            const { data: { publicUrl } } = supabase.storage.from('post_images').getPublicUrl(filePath)
+            const { error: updateError } = await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', currentUser.id)
+            if (updateError) throw updateError
+            setProfile({ ...profile, avatar_url: publicUrl })
         } catch (error: any) {
-            console.error(error);
-            alert('Error uploading image: ' + error.message);
+            alert('Error uploading image: ' + error.message)
         } finally {
-            setUploadingAvatar(false);
+            setUploadingAvatar(false)
         }
     }
+
     const confirmDelete = async () => {
         if (!postToDelete) return
         const { error } = await supabase.from('posts').delete().eq('id', postToDelete)
@@ -228,7 +205,7 @@ export default function UserProfile() {
             <aside className="hidden lg:flex fixed top-0 left-0 h-screen w-[280px] flex-col border-r border-gray-200 dark:border-white/5 bg-white/50 dark:bg-black/50 backdrop-blur-xl z-30">
                 <div className="p-6">
                     <div className="flex items-center gap-3 mb-8">
-                        <div className="w-10 h-10 relative"><Image src="/logo.png" alt="Logo" fill className="object-contain" /></div>
+                        <div className="w-10 h-10 relative"><Image src="/logo.png" alt="Logo" fill className="object-contain" unoptimized /></div>
                         <span className="text-xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-crimson to-nebula">DESI SANCHAR</span>
                     </div>
                     <nav className="space-y-1">
@@ -408,6 +385,15 @@ export default function UserProfile() {
                         )}
                         <div className="p-6">
                             <p className="text-lg mb-4">{selectedPost.content}</p>
+
+                            {/* === NEW: Location in Profile Modal === */}
+                            {selectedPost.location && (
+                                <div className="flex items-center gap-1.5 text-xs font-medium text-gray-400 mb-4">
+                                    <MapPin size={14} className="text-crimson" />
+                                    <span>{selectedPost.location}</span>
+                                </div>
+                            )}
+
                             <div className="flex gap-8 border-t border-gray-100 dark:border-white/10 pt-4">
                                 <button
                                     onClick={() => toggleLikePost(selectedPost)}
@@ -549,7 +535,7 @@ function CommentItem({ comment, onReply, isReply }: any) {
     return (
         <div className="flex gap-3">
             <div className={`rounded-full bg-gray-200 dark:bg-white/10 flex items-center justify-center font-bold text-xs ${isReply ? 'w-6 h-6' : 'w-8 h-8'}`}>
-                {comment.profiles?.avatar_url ? <Image src={comment.profiles.avatar_url} width={32} height={32} alt="u" className="rounded-full" /> : comment.profiles?.username[0].toUpperCase()}
+                {comment.profiles?.avatar_url ? <Image src={comment.profiles.avatar_url} width={32} height={32} alt="u" className="rounded-full" unoptimized /> : comment.profiles?.username[0].toUpperCase()}
             </div>
             <div className="flex-1">
                 <div className="flex items-center gap-2"><span className="font-bold text-sm">{comment.profiles?.username}</span><span className="text-gray-500 text-xs">{timeAgo(comment.created_at)}</span></div>

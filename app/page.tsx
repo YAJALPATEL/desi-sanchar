@@ -7,11 +7,10 @@ import Image from 'next/image'
 import {
   Home, Search, Bell, User, LogOut, PlusSquare,
   Heart, MessageCircle, Share2, Music, MoreHorizontal, Sun, Moon,
-  Radio, TrendingUp, Mic2, PlayCircle, Image as ImageIcon, X, Send, UserPlus
+  Radio, TrendingUp, Mic2, PlayCircle, Image as ImageIcon, X, Send, UserPlus, MapPin
 } from 'lucide-react'
 import { useTheme } from "next-themes"
-import heic2any from "heic2any"
-import imageCompression from 'browser-image-compression';
+
 // Helper: Relative Time
 function timeAgo(dateStr: string) {
   const date = new Date(dateStr)
@@ -32,15 +31,10 @@ function timeAgo(dateStr: string) {
 export default function HomePage() {
   const [user, setUser] = useState<any>(null)
   const [posts, setPosts] = useState<any[]>([])
-  const [content, setContent] = useState('')
-  const [imageFile, setImageFile] = useState<File | null>(null)
-  const [imagePreview, setImagePreview] = useState<string | null>(null)
-  const [isPosting, setIsPosting] = useState(false)
   const [loading, setLoading] = useState(true)
   const [activePostId, setActivePostId] = useState<string | null>(null)
   const [showHeader, setShowHeader] = useState(true)
   const lastScrollY = useRef(0)
-  const fileInputRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
   const supabase = createClient()
   const { theme, setTheme } = useTheme()
@@ -52,23 +46,6 @@ export default function HomePage() {
   const [unreadCount, setUnreadCount] = useState(0)
   const [followingIds, setFollowingIds] = useState<Set<string>>(new Set())
 
-  // === NEW: BACK BUTTON TRAP ===
-  useEffect(() => {
-    // 1. Push a "dummy" state to history
-    window.history.pushState(null, "", window.location.href);
-
-    // 2. Listen for the "Back" button press
-    const handleBackButton = () => {
-      // 3. If they press back, push them forward again instantly
-      window.history.pushState(null, "", window.location.href);
-    };
-
-    window.addEventListener("popstate", handleBackButton);
-
-    return () => {
-      window.removeEventListener("popstate", handleBackButton);
-    };
-  }, []);
   useEffect(() => {
     setMounted(true)
     const getData = async () => {
@@ -94,6 +71,15 @@ export default function HomePage() {
       return () => { supabase.removeChannel(channel) }
     }
     getData()
+
+    if (typeof window !== 'undefined') {
+      window.history.pushState(null, "", window.location.href);
+      const handleBackButton = () => {
+        window.history.pushState(null, "", window.location.href);
+      };
+      window.addEventListener("popstate", handleBackButton);
+      return () => window.removeEventListener("popstate", handleBackButton);
+    }
   }, [router, supabase])
 
   useEffect(() => {
@@ -181,70 +167,6 @@ export default function HomePage() {
     setFollowingIds(prev => new Set(prev).add(actorId))
   }
 
-  const handleCreatePost = async () => {
-    if (!content.trim() && !imageFile) return
-    setIsPosting(true)
-    try {
-      let imageUrl = null
-      if (imageFile) {
-        const fileExt = imageFile.name.split('.').pop()
-        const fileName = `${Math.random()}.${fileExt}`
-        const { error: uploadError } = await supabase.storage.from('post_images').upload(fileName, imageFile)
-        if (uploadError) throw uploadError
-        const { data: { publicUrl } } = supabase.storage.from('post_images').getPublicUrl(fileName)
-        imageUrl = publicUrl
-      }
-      const { error } = await supabase.from('posts').insert({ user_id: user.id, content: content, image_url: imageUrl })
-      if (error) throw error
-      setContent('')
-      setImageFile(null)
-      setImagePreview(null)
-      fetchPosts(user.id)
-    } catch (error: any) {
-      alert('Error: ' + error.message)
-    } finally {
-      setIsPosting(false)
-    }
-  }
-
-  const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const originalFile = e.target.files[0];
-
-      // Options for the compressor
-      const options = {
-        maxSizeMB: 1,              // Compress to ~1MB
-        maxWidthOrHeight: 1920,    // Resize if huge
-        useWebWorker: true,        // Run in background (fast)
-        fileType: "image/jpeg"     // Force JPG (Fixes HEIC)
-      };
-
-      try {
-        setLoading(true); // Show spinner while working
-        console.log(`Original: ${originalFile.size / 1024 / 1024} MB`);
-
-        // 1. Compress & Convert
-        const compressedBlob = await imageCompression(originalFile, options);
-
-        // 2. Convert Blob back to File
-        const compressedFile = new File([compressedBlob], originalFile.name.replace(/\.heic$/i, ".jpg"), {
-          type: "image/jpeg",
-        });
-
-        console.log(`Compressed: ${compressedFile.size / 1024 / 1024} MB`);
-
-        setImageFile(compressedFile);
-        setImagePreview(URL.createObjectURL(compressedFile));
-
-      } catch (error) {
-        console.error("Compression Error:", error);
-        alert("Could not process image. Please try another.");
-      } finally {
-        setLoading(false);
-      }
-    }
-  }
-
   const handleLogout = async () => {
     await supabase.auth.signOut()
     router.push('/login')
@@ -252,6 +174,7 @@ export default function HomePage() {
   }
 
   const goToMyProfile = () => { if (user?.id) router.push(`/profile/${user.id}`) }
+  const goToCreatePost = () => { router.push('/create') }
 
   if (loading || !mounted) return <div className="min-h-screen bg-[#050505] flex items-center justify-center"><div className="w-10 h-10 border-4 border-crimson border-t-transparent rounded-full animate-spin"></div></div>
 
@@ -268,25 +191,26 @@ export default function HomePage() {
       <aside className="hidden lg:flex fixed top-0 left-0 h-screen w-[280px] flex-col border-r border-gray-200 dark:border-white/5 bg-white/60 dark:bg-black/60 backdrop-blur-xl z-30 shadow-xl shadow-black/5">
         <div className="p-6">
           <div className="flex items-center gap-3 mb-8 hover:scale-105 transition-transform cursor-pointer">
-            <div className="w-10 h-10 relative drop-shadow-lg"><Image src="/logo.png" alt="Logo" fill className="object-contain" /></div>
+            <div className="w-10 h-10 relative drop-shadow-lg"><Image src="/logo.png" alt="Logo" fill className="object-contain" unoptimized /></div>
             <span className="text-xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-crimson to-nebula drop-shadow-sm">DESI SANCHAR</span>
           </div>
           <nav className="space-y-2">
             <NavItem icon={<Home size={26} />} text="Home" active />
             <NavItem icon={<Search size={26} />} text="Explore" />
             <NavItem icon={<Mic2 size={26} />} text="Karaoke Mode" />
-
             <NavItem
               icon={<Bell size={26} />}
               text="Notifications"
               onClick={toggleNotificationSlider}
-              badge={unreadCount > 0} // PASS BOOLEAN NOW
+              badge={unreadCount > 0}
             />
-
             <NavItem icon={<User size={26} />} text="Profile" onClick={goToMyProfile} />
           </nav>
           <div className="mt-8">
-            <button className="w-full bg-gradient-to-r from-crimson to-rose-600 hover:from-rose-600 hover:to-crimson text-white font-bold py-3.5 rounded-full shadow-lg shadow-crimson/30 transition-all hover:shadow-crimson/50 hover:-translate-y-1 active:scale-95 flex items-center justify-center gap-2">
+            <button
+              onClick={goToCreatePost}
+              className="w-full bg-gradient-to-r from-crimson to-rose-600 hover:from-rose-600 hover:to-crimson text-white font-bold py-3.5 rounded-full shadow-lg shadow-crimson/30 transition-all hover:shadow-crimson/50 hover:-translate-y-1 active:scale-95 flex items-center justify-center gap-2"
+            >
               <PlusSquare size={20} /><span>Create Post</span>
             </button>
           </div>
@@ -318,7 +242,7 @@ export default function HomePage() {
         {/* Mobile Header */}
         <div className={`lg:hidden fixed top-0 left-0 right-0 bg-white/80 dark:bg-black/80 backdrop-blur-xl p-4 flex justify-between items-center border-b border-gray-200 dark:border-white/5 z-40 w-full transition-all duration-500 ease-in-out ${showHeader ? 'translate-y-0 opacity-100' : '-translate-y-full opacity-0'}`}>
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 relative"><Image src="/logo.png" alt="Logo" fill className="object-contain" /></div>
+            <div className="w-8 h-8 relative"><Image src="/logo.png" alt="Logo" fill className="object-contain" unoptimized /></div>
             <h1 className="font-black text-transparent bg-clip-text bg-gradient-to-r from-crimson to-nebula">DESI SANCHAR</h1>
           </div>
           <div className="flex gap-3 items-center">
@@ -340,37 +264,18 @@ export default function HomePage() {
             <StoryItem name="Shreya" img="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=200&q=80" />
           </div>
 
-          <div className="bg-white/80 dark:bg-[#111]/80 backdrop-blur-sm rounded-3xl p-4 shadow-lg shadow-black/5 border border-gray-200 dark:border-white/5 mb-8 hover:border-crimson/30 transition-colors duration-300">
-            <div className="flex gap-4">
-              <div onClick={goToMyProfile} className="w-11 h-11 rounded-full bg-gradient-to-tr from-crimson to-nebula flex-shrink-0 flex items-center justify-center text-white font-bold cursor-pointer hover:rotate-6 transition-transform">
+          <div
+            onClick={goToCreatePost}
+            className="bg-white/80 dark:bg-[#111]/80 backdrop-blur-sm rounded-3xl p-4 shadow-lg shadow-black/5 border border-gray-200 dark:border-white/5 mb-8 hover:border-crimson/30 transition-all cursor-pointer group"
+          >
+            <div className="flex gap-4 items-center">
+              <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-crimson to-nebula flex-shrink-0 flex items-center justify-center text-white font-bold">
                 {user?.email?.[0].toUpperCase()}
               </div>
-              <div className="w-full">
-                <input type="text" value={content} onChange={(e) => setContent(e.target.value)} placeholder="What's playing in your mind?" className="w-full bg-transparent outline-none text-lg placeholder-gray-500 mb-2" />
-                {imagePreview && (
-                  <div className="relative w-full h-64 rounded-xl overflow-hidden mb-2 animate-in zoom-in-95 duration-300">
-                    <Image src={imagePreview} alt="Preview" fill className="object-cover" />
-                    <button onClick={() => { setImageFile(null); setImagePreview(null) }} className="absolute top-2 right-2 bg-black/50 p-1 rounded-full text-white hover:bg-black/70 transition-colors"><X size={16} /></button>
-                  </div>
-                )}
+              <div className="flex-1 bg-gray-100 dark:bg-white/5 rounded-full px-5 py-3 text-gray-500 dark:text-gray-400 group-hover:bg-white dark:group-hover:bg-white/10 transition-colors">
+                What's playing in your mind?
               </div>
-            </div>
-            <div className="flex justify-between items-center mt-2 pt-3 border-t border-gray-100 dark:border-white/5">
-              <div className="flex gap-4 text-crimson">
-                <button className="hover:bg-crimson/10 p-2 rounded-full transition-colors active:scale-90"><Music size={22} /></button>
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  onChange={handleImageSelect}
-                  className="hidden"
-                  accept="image/*"
-                />
-                <button onClick={() => fileInputRef.current?.click()} className="hover:bg-crimson/10 p-2 rounded-full transition-colors active:scale-90"><ImageIcon size={22} /></button>
-                <button className="hover:bg-crimson/10 p-2 rounded-full transition-colors active:scale-90"><Mic2 size={22} /></button>
-              </div>
-              <button onClick={handleCreatePost} disabled={isPosting} className="bg-black dark:bg-white text-white dark:text-black px-6 py-2 rounded-full font-bold text-sm hover:opacity-80 disabled:opacity-50 active:scale-95 transition-all">
-                {isPosting ? 'Posting...' : 'Post'}
-              </button>
+              <div className="p-2 bg-gray-100 dark:bg-white/5 rounded-full text-crimson"><ImageIcon size={20} /></div>
             </div>
           </div>
 
@@ -422,7 +327,13 @@ export default function HomePage() {
       <div className={`lg:hidden fixed bottom-0 left-0 right-0 bg-white/90 dark:bg-black/90 backdrop-blur-xl border-t border-gray-200 dark:border-white/10 flex justify-around p-3 z-50 transition-transform duration-500 ease-in-out ${showHeader ? 'translate-y-0' : 'translate-y-full'}`}>
         <Home size={26} className="text-crimson cursor-pointer active:scale-75 transition-transform" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} />
         <Search size={26} className="text-gray-400 cursor-pointer active:scale-75 transition-transform" />
-        <PlusSquare size={32} className="text-gray-400 cursor-pointer active:scale-75 transition-transform -mt-1 text-crimson" />
+
+        <PlusSquare
+          size={32}
+          className="text-gray-400 cursor-pointer active:scale-75 transition-transform -mt-1 text-crimson"
+          onClick={goToCreatePost}
+        />
+
         <div className="relative active:scale-75 transition-transform">
           <Bell size={26} className="text-gray-400 cursor-pointer" onClick={toggleNotificationSlider} />
           {unreadCount > 0 && <span className="absolute top-0 right-0 bg-crimson w-2.5 h-2.5 rounded-full border-2 border-white dark:border-black animate-pulse" />}
@@ -470,7 +381,7 @@ export default function HomePage() {
                   <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-2">
                       <div className="w-5 h-5 rounded-full bg-gray-200 relative overflow-hidden">
-                        {notif.actor?.avatar_url ? <Image src={notif.actor.avatar_url} fill alt="u" /> : null}
+                        {notif.actor?.avatar_url ? <Image src={notif.actor.avatar_url} fill alt="u" unoptimized /> : null}
                       </div>
                       <span className="font-bold text-sm">{notif.actor?.username}</span>
                     </div>
@@ -493,7 +404,6 @@ export default function HomePage() {
           </div>
         </div>
       </div>
-
     </div>
   )
 }
@@ -580,6 +490,13 @@ function PostCard({ post, currentUser, onOpenComments }: any) {
         </div>
       )}
 
+      {post.location && (
+        <div className="px-4 pt-3 flex items-center gap-1.5 text-xs font-medium text-gray-400">
+          <MapPin size={14} className="text-crimson" />
+          <span>{post.location}</span>
+        </div>
+      )}
+
       <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 dark:border-white/5 mt-2">
         <div className="flex gap-8">
           <button onClick={toggleLike} className={`flex items-center gap-2 transition-colors group ${isLiked ? 'text-crimson' : 'text-gray-500 hover:text-crimson'}`}>
@@ -656,7 +573,8 @@ function CommentsModal({ postId, currentUser, onClose }: any) {
             <div className="p-4 border-b border-gray-100 dark:border-white/5 bg-gray-50 dark:bg-white/5">
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-8 h-8 rounded-full bg-gray-200 relative overflow-hidden">
-                  {postDetails.profiles?.avatar_url ? <Image src={postDetails.profiles.avatar_url} fill alt="u" /> : null}
+                  {/* === FIX: Added unoptimized here === */}
+                  {postDetails.profiles?.avatar_url ? <Image src={postDetails.profiles.avatar_url} fill alt="u" unoptimized /> : null}
                 </div>
                 <span className="font-bold text-sm">{postDetails.profiles?.username}</span>
                 <span className="text-xs text-gray-500">• {timeAgo(postDetails.created_at)}</span>
@@ -665,6 +583,14 @@ function CommentsModal({ postId, currentUser, onClose }: any) {
               {postDetails.image_url && (
                 <div className="relative w-full h-48 rounded-lg overflow-hidden bg-black mb-2">
                   <Image src={postDetails.image_url} fill className="object-cover" alt="post" unoptimized />
+                </div>
+              )}
+
+              {/* === NEW: Location in Comments Modal === */}
+              {postDetails.location && (
+                <div className="flex items-center gap-1.5 text-xs font-medium text-gray-400 mt-2">
+                  <MapPin size={14} className="text-crimson" />
+                  <span>{postDetails.location}</span>
                 </div>
               )}
             </div>
@@ -700,7 +626,8 @@ function CommentItem({ comment, onReply, isReply }: any) {
   return (
     <div className="flex gap-3">
       <div className={`rounded-full bg-gray-200 dark:bg-white/10 flex items-center justify-center font-bold text-xs ${isReply ? 'w-6 h-6' : 'w-8 h-8'}`}>
-        {comment.profiles?.avatar_url ? <Image src={comment.profiles.avatar_url} width={32} height={32} alt="u" className="rounded-full" /> : comment.profiles?.username[0].toUpperCase()}
+        {/* === FIX: Added unoptimized here === */}
+        {comment.profiles?.avatar_url ? <Image src={comment.profiles.avatar_url} width={32} height={32} alt="u" className="rounded-full" unoptimized /> : comment.profiles?.username[0].toUpperCase()}
       </div>
       <div className="flex-1">
         <div className="flex items-center gap-2"><span className="font-bold text-sm">{comment.profiles?.username}</span><span className="text-gray-500 text-xs">{timeAgo(comment.created_at)}</span></div>
