@@ -1,4 +1,3 @@
-
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
@@ -202,7 +201,6 @@ export default function HomePage() {
           </nav>
           <div className="mt-auto">
             <div className="mb-6"><button onClick={goToCreatePost} className="w-full bg-gradient-to-r from-crimson to-rose-600 text-white font-bold py-3.5 rounded-full shadow-lg flex items-center justify-center gap-2"><PlusSquare size={20} /><span>Create Post</span></button></div>
-
             {/* Profile Card & Logout */}
             <div className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-white/50 dark:bg-white/5 border border-gray-200 dark:border-white/5 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors cursor-pointer group" onClick={goToMyProfile}>
               <div className="flex items-center gap-3">
@@ -338,12 +336,15 @@ function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
   const [currentIndex, setCurrentIndex] = useState(startIndex)
   const [progress, setProgress] = useState(0)
 
+  // Analytics State
   const [isLiked, setIsLiked] = useState(false)
   const [likeCount, setLikeCount] = useState(0)
   const [viewCount, setViewCount] = useState(0)
   const [showAnalytics, setShowAnalytics] = useState(false)
   const [analyticsData, setAnalyticsData] = useState<any[]>([])
   const [isPaused, setIsPaused] = useState(false)
+
+  // Custom Delete Confirm State
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   const supabase = createClient()
@@ -365,19 +366,30 @@ function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
     setShowDeleteConfirm(false)
 
     const recordViewAndFetchStats = async () => {
-      // Record View
-      if (!isOwner) {
-        await supabase.from('story_views').insert({ story_id: story.id, user_id: currentUser.id }).catch(() => { })
+      try {
+        // Record View (using try/catch instead of .catch chain)
+        if (!isOwner) {
+          try {
+            await supabase.from('story_views').insert({ story_id: story.id, user_id: currentUser.id })
+          } catch (e) {
+            // Ignore duplicate view errors
+          }
+        }
+
+        // Get Counts
+        const { count: vCount } = await supabase.from('story_views').select('*', { count: 'exact', head: true }).eq('story_id', story.id)
+        setViewCount(vCount || 0)
+
+        const { count: lCount } = await supabase.from('story_likes').select('*', { count: 'exact', head: true }).eq('story_id', story.id)
+        setLikeCount(lCount || 0)
+
+        // Use maybeSingle() to avoid 406 Not Acceptable
+        const { data: likeData } = await supabase.from('story_likes').select('*').eq('story_id', story.id).eq('user_id', currentUser.id).maybeSingle()
+        if (likeData) setIsLiked(true)
+
+      } catch (error) {
+        console.error("Error fetching stats:", error)
       }
-      // Get Counts
-      const { count: vCount } = await supabase.from('story_views').select('*', { count: 'exact', head: true }).eq('story_id', story.id)
-      setViewCount(vCount || 0)
-
-      const { count: lCount } = await supabase.from('story_likes').select('*', { count: 'exact', head: true }).eq('story_id', story.id)
-      setLikeCount(lCount || 0)
-
-      const { data: likeData } = await supabase.from('story_likes').select('*').eq('story_id', story.id).eq('user_id', currentUser.id).single()
-      if (likeData) setIsLiked(true)
     }
     recordViewAndFetchStats()
   }, [currentIndex, story])
@@ -436,7 +448,7 @@ function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
     }
   }
 
-  // === SAFE ANALYTICS FETCH (Prevents 400 Error & Fixes Empty List) ===
+  // === SAFE ANALYTICS FETCH (Prevents 400 Error) ===
   const openAnalytics = async () => {
     setIsPaused(true)
     setShowAnalytics(true)
