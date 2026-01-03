@@ -162,7 +162,13 @@ export default function HomePage() {
     setShowNotifications(false)
   }
 
-  const handleLogout = async () => { await supabase.auth.signOut(); router.push('/login'); router.refresh() }
+  const handleLogout = async (e: any) => {
+    e.stopPropagation()
+    await supabase.auth.signOut()
+    router.push('/login')
+    router.refresh()
+  }
+
   const goToMyProfile = () => { if (user?.id) router.push(`/profile/${user.id}`) }
   const goToCreatePost = () => { router.push('/create') }
   const goToAddStory = () => { router.push('/story/create') }
@@ -182,10 +188,11 @@ export default function HomePage() {
 
       <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden"><div className="absolute -top-[10%] -right-[10%] w-[500px] h-[500px] bg-purple-500/20 rounded-full blur-[100px] animate-pulse" /><div className="absolute -bottom-[10%] -left-[10%] w-[500px] h-[500px] bg-crimson/20 rounded-full blur-[100px] animate-pulse" /></div>
 
-      {/* LEFT SIDEBAR (With Logout Restored) */}
+      {/* === LEFT SIDEBAR (PROFILE + LOGOUT) === */}
       <aside className="hidden lg:flex fixed top-0 left-0 h-screen w-[280px] flex-col border-r border-gray-200 dark:border-white/5 bg-white/60 dark:bg-black/60 backdrop-blur-xl z-30 shadow-xl shadow-black/5">
         <div className="p-6 h-full flex flex-col">
           <div className="flex items-center gap-3 mb-8"><div className="w-10 h-10 relative"><Image src="/logo.png" alt="Logo" fill className="object-contain" unoptimized /></div><span className="text-xl font-black bg-clip-text text-transparent bg-gradient-to-r from-crimson to-nebula">DESI SANCHAR</span></div>
+
           <nav className="space-y-2 flex-1">
             <NavItem icon={<Home size={26} />} text="Home" active />
             <NavItem icon={<Search size={26} />} text="Explore" />
@@ -193,9 +200,27 @@ export default function HomePage() {
             <NavItem icon={<Bell size={26} />} text="Notifications" onClick={toggleNotificationSlider} badge={unreadCount > 0} />
             <NavItem icon={<User size={26} />} text="Profile" onClick={goToMyProfile} />
           </nav>
+
           <div className="mt-auto">
-            <div className="mb-4"><button onClick={goToCreatePost} className="w-full bg-gradient-to-r from-crimson to-rose-600 text-white font-bold py-3.5 rounded-full shadow-lg flex items-center justify-center gap-2"><PlusSquare size={20} /><span>Create Post</span></button></div>
-            <button onClick={handleLogout} className="w-full flex items-center gap-4 px-4 py-3 text-gray-500 hover:text-crimson transition-colors rounded-xl hover:bg-red-50 dark:hover:bg-red-900/10 font-bold"><LogOut size={24} /> Logout</button>
+            <div className="mb-6"><button onClick={goToCreatePost} className="w-full bg-gradient-to-r from-crimson to-rose-600 text-white font-bold py-3.5 rounded-full shadow-lg flex items-center justify-center gap-2"><PlusSquare size={20} /><span>Create Post</span></button></div>
+
+            {/* Profile Card & Logout */}
+            <div className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-white/50 dark:bg-white/5 border border-gray-200 dark:border-white/5 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors cursor-pointer group" onClick={goToMyProfile}>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-crimson to-orange-500 p-[2px]">
+                  <div className="w-full h-full rounded-full bg-white dark:bg-black overflow-hidden relative flex items-center justify-center text-xs font-bold">
+                    {user?.user_metadata?.avatar_url ? <Image src={user.user_metadata.avatar_url} fill className="object-cover" alt="u" unoptimized /> : user?.email?.[0].toUpperCase()}
+                  </div>
+                </div>
+                <div className="flex flex-col">
+                  <span className="font-bold text-sm truncate w-24">{user?.user_metadata?.username || "User"}</span>
+                  <span className="text-xs text-gray-500">@{user?.email?.split('@')[0]}</span>
+                </div>
+              </div>
+              <button onClick={handleLogout} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-full transition-all" title="Logout">
+                <LogOut size={20} />
+              </button>
+            </div>
           </div>
         </div>
       </aside>
@@ -235,10 +260,36 @@ export default function HomePage() {
         </div>
       </main>
 
-      {/* RIGHT SIDEBAR (Restored) */}
+      {/* === RIGHT SIDEBAR (RADIO + TRENDS) === */}
       <aside className="hidden xl:block fixed top-0 right-0 h-screen w-[350px] p-6 space-y-6 overflow-y-auto z-30 border-l border-gray-200 dark:border-white/5 bg-gray-50/50 dark:bg-[#050505]/50 backdrop-blur-xl">
-        <div className="relative group"><Search className="absolute left-4 top-3.5 text-gray-400 group-focus-within:text-crimson" size={20} /><input type="text" placeholder="Search..." className="w-full bg-gray-100 dark:bg-white/5 border-none rounded-full py-3 pl-12 pr-4 outline-none focus:ring-2 focus:ring-crimson" /></div>
-        <div className="bg-gradient-to-br from-indigo-900 to-purple-900 rounded-3xl p-5 text-white relative overflow-hidden shadow-2xl"><h3 className="text-xl font-bold mb-1">Mirchi Top 20</h3><p className="text-indigo-200 text-sm mb-4">RJ Nidhi • 12k Listening</p><button className="bg-white text-indigo-900 w-full py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-2"><PlayCircle size={18} /> Tune In</button></div>
+        <div className="relative group">
+          <Search className="absolute left-4 top-3.5 text-gray-400 group-focus-within:text-crimson" size={20} />
+          <input type="text" placeholder="Search..." className="w-full bg-gray-100 dark:bg-white/5 border-none rounded-full py-3 pl-12 pr-4 outline-none focus:ring-2 focus:ring-crimson transition-all" />
+        </div>
+
+        <div className="bg-gradient-to-br from-indigo-900 to-purple-900 rounded-3xl p-5 text-white relative overflow-hidden shadow-2xl group cursor-pointer">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl -mr-10 -mt-10"></div>
+          <div className="relative z-10">
+            <div className="flex justify-between items-start mb-4">
+              <div className="bg-white/20 backdrop-blur-md px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1"><Radio size={12} className="animate-pulse" /> Live Radio</div>
+              <MoreHorizontal size={20} className="text-white/50" />
+            </div>
+            <h3 className="text-2xl font-black mb-1">Mirchi Top 20</h3>
+            <p className="text-indigo-200 text-sm mb-6">RJ Nidhi • 12k Listening</p>
+            <button className="bg-white text-indigo-900 w-full py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:scale-[1.02] transition-transform shadow-lg"><PlayCircle size={20} /> Tune In Now</button>
+          </div>
+        </div>
+
+        {/* Trends */}
+        <div className="bg-white/50 dark:bg-white/5 rounded-3xl p-5 border border-gray-100 dark:border-white/5">
+          <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><TrendingUp size={20} className="text-crimson" /> Trends for you</h3>
+          <div className="space-y-1">
+            <TrendItem category="Music" tag="#DiljitDosanjh" posts="54.2k" />
+            <TrendItem category="Cinema" tag="#Pushpa2" posts="120k" />
+            <TrendItem category="Tech" tag="#AIRevolution" posts="24k" />
+            <TrendItem category="Sports" tag="#IPL2026" posts="89k" />
+          </div>
+        </div>
       </aside>
 
       {activePostId && <CommentsModal postId={activePostId} currentUser={user} onClose={() => setActivePostId(null)} />}
@@ -272,13 +323,13 @@ export default function HomePage() {
 }
 
 // ==========================================
-// UPGRADED STORY VIEWER (Views, Likes, Delete, Analytics)
+// STORY VIEWER (Segments Fixed)
 // ==========================================
 function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
   const [currentIndex, setCurrentIndex] = useState(startIndex)
   const [progress, setProgress] = useState(0)
 
-  // Analytics State
+  // Analytics
   const [isLiked, setIsLiked] = useState(false)
   const [viewCount, setViewCount] = useState(0)
   const [showAnalytics, setShowAnalytics] = useState(false)
@@ -289,32 +340,35 @@ function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
   const story = stories[currentIndex]
   const isOwner = story?.user_id === currentUser?.id
 
-  // 1. Load Story & Stats
+  // --- NEW: LOGIC TO GET USER-SPECIFIC STORIES FOR PROGRESS BARS ---
+  // 1. Find who owns the current story
+  const currentOwnerId = story?.user_id
+  // 2. Filter all stories to get ONLY this user's stories
+  const userStories = stories.filter((s: any) => s.user_id === currentOwnerId)
+  // 3. Find the index of the current story WITHIN this user's list
+  const localIndex = userStories.findIndex((s: any) => s.id === story?.id)
+  // ----------------------------------------------------------------
+
   useEffect(() => {
     if (!story) return
     setProgress(0)
     setIsLiked(false)
     setViewCount(0)
-    setIsPaused(false) // Resume timer on new slide
+    setIsPaused(false)
 
     const recordViewAndFetchStats = async () => {
-      // Record View (Unique constraint prevents duplicates)
       if (!isOwner) {
         await supabase.from('story_views').insert({ story_id: story.id, user_id: currentUser.id }).catch(() => { })
       }
-
-      // Fetch Stats
       const { count: vCount } = await supabase.from('story_views').select('*', { count: 'exact', head: true }).eq('story_id', story.id)
       const { data: likeData } = await supabase.from('story_likes').select('*').eq('story_id', story.id).eq('user_id', currentUser.id).single()
 
       setViewCount(vCount || 0)
       if (likeData) setIsLiked(true)
     }
-
     recordViewAndFetchStats()
   }, [currentIndex, story])
 
-  // 2. Timer Logic (Pauses if Analytics open)
   useEffect(() => {
     if (!story || showAnalytics || isPaused) return
     if (story.media_type === 'video') return
@@ -343,10 +397,10 @@ function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
   }
 
   const handlePrev = () => {
+    // If it's the first story of the user, go to previous user's last story
     if (currentIndex > 0) setCurrentIndex((p: number) => p - 1)
   }
 
-  // 3. Actions
   const toggleLike = async () => {
     const newStatus = !isLiked
     setIsLiked(newStatus)
@@ -360,9 +414,13 @@ function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
 
   const handleDelete = async () => {
     if (confirm("Delete this story?")) {
-      await supabase.from('stories').delete().eq('id', story.id)
-      onClose()
-      window.location.reload()
+      const { error } = await supabase.from('stories').delete().eq('id', story.id)
+      if (!error) {
+        onClose()
+        window.location.reload()
+      } else {
+        alert(error.message)
+      }
     }
   }
 
@@ -382,7 +440,6 @@ function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
       ...view,
       hasLiked: likedUserIds.has(view.user?.id)
     }))
-
     setAnalyticsData(formatted || [])
   }
 
@@ -396,16 +453,19 @@ function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
 
       <div className="relative w-full h-full md:max-w-md md:h-[90vh] md:rounded-2xl overflow-hidden bg-black shadow-2xl flex flex-col">
 
-        {/* Progress Bar */}
+        {/* --- PROGRESS BARS (UPDATED to show only user's segments) --- */}
         <div className="absolute top-0 left-0 right-0 p-2 z-50 flex gap-1">
-          {stories.map((s: any, i: number) => (
+          {userStories.map((s: any, i: number) => (
             <div key={s.id} className="h-1 flex-1 bg-white/30 rounded-full overflow-hidden">
-              <div className={`h-full bg-white transition-all ease-linear ${i === currentIndex ? 'duration-75' : 'duration-0'}`} style={{ width: i < currentIndex ? '100%' : i === currentIndex ? `${progress}%` : '0%' }} />
+              <div
+                className={`h-full bg-white transition-all ease-linear ${i === localIndex ? 'duration-75' : 'duration-0'}`}
+                style={{ width: i < localIndex ? '100%' : i === localIndex ? `${progress}%` : '0%' }}
+              />
             </div>
           ))}
         </div>
 
-        {/* User Info & Delete */}
+        {/* User Info */}
         <div className="absolute top-4 left-0 right-0 p-4 z-50 flex justify-between items-center bg-gradient-to-b from-black/50 to-transparent">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full border-2 border-crimson relative overflow-hidden">
@@ -414,24 +474,17 @@ function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
             <div className="text-white font-bold text-sm shadow-black drop-shadow-md">{story.profiles?.username}</div>
             <div className="text-white/70 text-xs shadow-black drop-shadow-md">{timeAgo(story.created_at)}</div>
           </div>
-
           <div className="flex items-center gap-4">
             {isOwner && <button onClick={handleDelete} className="text-white/80 hover:text-red-500 p-2 rounded-full bg-black/20 backdrop-blur-md"><Trash2 size={20} /></button>}
             <button onClick={onClose} className="text-white p-2 hover:bg-white/20 rounded-full"><X size={24} /></button>
           </div>
         </div>
 
-        {/* Touch Zones (Nav) */}
-        <div className="absolute inset-0 flex z-40"
-          onMouseDown={() => setIsPaused(true)}
-          onMouseUp={() => setIsPaused(false)}
-          onTouchStart={() => setIsPaused(true)}
-          onTouchEnd={() => setIsPaused(false)}>
+        <div className="absolute inset-0 flex z-40" onMouseDown={() => setIsPaused(true)} onMouseUp={() => setIsPaused(false)} onTouchStart={() => setIsPaused(true)} onTouchEnd={() => setIsPaused(false)}>
           <div className="w-1/3 h-full" onClick={handlePrev} />
           <div className="w-2/3 h-full" onClick={handleNext} />
         </div>
 
-        {/* Content */}
         <div className={`flex-1 relative flex items-center justify-center overflow-hidden ${story.media_type === 'text' ? `bg-gradient-to-br ${bgGradient}` : 'bg-black'}`}>
           {story.media_type === 'image' && story.media_url && <Image src={story.media_url} fill className="object-contain" alt="Story" unoptimized priority />}
           {story.media_type === 'video' && story.media_url && <video src={story.media_url} className="w-full h-full object-contain" autoPlay playsInline onEnded={handleNext} />}
@@ -445,13 +498,10 @@ function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
           ))}
         </div>
 
-        {/* FOOTER: Like & Analytics */}
         <div className="absolute bottom-0 left-0 right-0 p-4 z-50 flex items-end justify-between bg-gradient-to-t from-black/80 to-transparent">
           <button onClick={toggleLike} className="flex items-center gap-2 text-white p-2">
             <Heart size={28} fill={isLiked ? "red" : "none"} className={isLiked ? "text-red-500 animate-bounce" : "text-white"} />
           </button>
-
-          {/* OWNER ANALYTICS TRIGGER */}
           {isOwner && (
             <div onClick={openAnalytics} className="flex flex-col items-center gap-1 cursor-pointer animate-pulse z-50">
               <ChevronUp size={20} className="text-white/70" />
@@ -461,11 +511,9 @@ function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
               </div>
             </div>
           )}
-
           <button className="text-white p-2"><Send size={24} /></button>
         </div>
 
-        {/* ANALYTICS DRAWER */}
         {showAnalytics && (
           <div className="absolute inset-0 z-[60] bg-black/95 animate-in slide-in-from-bottom duration-300 flex flex-col">
             <div className="p-4 border-b border-white/10 flex justify-between items-center">
@@ -496,8 +544,6 @@ function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
   )
 }
 
-// ... StoryItem, PostCard, CommentsModal, NavItem, TrendItem, ActionBtn ...
-// (These remain exactly as they were in your original code to preserve other functionality)
 function StoryItem({ name, img, isAdd, onClick }: any) {
   return (
     <div onClick={onClick} className="flex flex-col items-center space-y-2 min-w-[70px] cursor-pointer group snap-center">
