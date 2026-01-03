@@ -1,3 +1,4 @@
+
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
@@ -201,6 +202,7 @@ export default function HomePage() {
           </nav>
           <div className="mt-auto">
             <div className="mb-6"><button onClick={goToCreatePost} className="w-full bg-gradient-to-r from-crimson to-rose-600 text-white font-bold py-3.5 rounded-full shadow-lg flex items-center justify-center gap-2"><PlusSquare size={20} /><span>Create Post</span></button></div>
+
             {/* Profile Card & Logout */}
             <div className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-white/50 dark:bg-white/5 border border-gray-200 dark:border-white/5 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors cursor-pointer group" onClick={goToMyProfile}>
               <div className="flex items-center gap-3">
@@ -336,15 +338,12 @@ function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
   const [currentIndex, setCurrentIndex] = useState(startIndex)
   const [progress, setProgress] = useState(0)
 
-  // Analytics State
   const [isLiked, setIsLiked] = useState(false)
   const [likeCount, setLikeCount] = useState(0)
   const [viewCount, setViewCount] = useState(0)
   const [showAnalytics, setShowAnalytics] = useState(false)
   const [analyticsData, setAnalyticsData] = useState<any[]>([])
   const [isPaused, setIsPaused] = useState(false)
-
-  // Custom Delete Confirm State
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   const supabase = createClient()
@@ -437,48 +436,54 @@ function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
     }
   }
 
-  // === FIXED ANALYTICS (2-STEP FETCH to Avoid 400 Error) ===
+  // === SAFE ANALYTICS FETCH (Prevents 400 Error & Fixes Empty List) ===
   const openAnalytics = async () => {
     setIsPaused(true)
     setShowAnalytics(true)
 
-    // 1. Fetch Views (IDs only)
-    const { data: views, error } = await supabase
-      .from('story_views')
-      .select('user_id, created_at')
-      .eq('story_id', story.id)
-      .order('created_at', { ascending: false })
+    try {
+      // 1. Fetch View IDs
+      const { data: views, error: vError } = await supabase
+        .from('story_views')
+        .select('user_id, created_at')
+        .eq('story_id', story.id)
+        .order('created_at', { ascending: false })
 
-    if (error || !views || views.length === 0) {
-      setAnalyticsData([])
-      return
+      if (vError || !views || views.length === 0) {
+        setAnalyticsData([])
+        return
+      }
+
+      // 2. Fetch Profiles separately (Safe way)
+      const userIds = views.map((v: any) => v.user_id)
+      const { data: profiles, error: pError } = await supabase
+        .from('profiles')
+        .select('id, username, avatar_url')
+        .in('id', userIds)
+
+      if (pError) console.error("Profile Fetch Error:", pError)
+
+      // 3. Fetch Likes
+      const { data: likes } = await supabase
+        .from('story_likes')
+        .select('user_id')
+        .eq('story_id', story.id)
+        .in('user_id', userIds)
+
+      const likedSet = new Set(likes?.map((l: any) => l.user_id))
+      const profileMap = new Map(profiles?.map((p: any) => [p.id, p]))
+
+      // 4. Merge Data
+      const formatted = views.map((view: any) => ({
+        created_at: view.created_at,
+        user: profileMap.get(view.user_id),
+        hasLiked: likedSet.has(view.user_id)
+      }))
+
+      setAnalyticsData(formatted)
+    } catch (e) {
+      console.error("Analytics Error:", e)
     }
-
-    // 2. Fetch Profiles for these IDs
-    const userIds = views.map((v: any) => v.user_id)
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('id, username, avatar_url')
-      .in('id', userIds)
-
-    // 3. Fetch Likes for these IDs
-    const { data: likes } = await supabase
-      .from('story_likes')
-      .select('user_id')
-      .eq('story_id', story.id)
-      .in('user_id', userIds)
-
-    const likedSet = new Set(likes?.map((l: any) => l.user_id))
-    const profileMap = new Map(profiles?.map((p: any) => [p.id, p]))
-
-    // 4. Merge
-    const formatted = views.map((view: any) => ({
-      created_at: view.created_at,
-      user: profileMap.get(view.user_id),
-      hasLiked: likedSet.has(view.user_id)
-    }))
-
-    setAnalyticsData(formatted)
   }
 
   if (!story) return null
@@ -837,9 +842,7 @@ function NavItem({ icon, text, active, badge, onClick }: any) {
 
 function TrendItem({ category, tag, posts }: any) {
   return (
-    <div className="flex justify-between items-start cursor-pointer group hover:bg-white/5 p-2 rounded-lg transition-colors">
-      <div><div className="text-xs text-gray-500 mb-0.5">{category} • Trending</div><div className="font-bold text-sm group-hover:text-crimson transition-colors">{tag}</div><div className="text-xs text-gray-400">{posts} posts</div></div><MoreHorizontal size={16} className="text-gray-300 group-hover:text-white transition-colors" />
-    </div>
+    <div className="flex justify-between items-start cursor-pointer group hover:bg-white/5 p-2 rounded-lg transition-colors"><div><div className="text-xs text-gray-500 mb-0.5">{category} • Trending</div><div className="font-bold text-sm group-hover:text-crimson transition-colors">{tag}</div><div className="text-xs text-gray-400">{posts} posts</div></div><MoreHorizontal size={16} className="text-gray-300 group-hover:text-white transition-colors" /></div>
   )
 }
 
