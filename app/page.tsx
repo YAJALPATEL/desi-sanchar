@@ -258,7 +258,7 @@ export default function HomePage() {
         </div>
       </main>
 
-      {/* === MOBILE BOTTOM NAV (RESTORED) === */}
+      {/* === MOBILE BOTTOM NAV === */}
       <div className={`lg:hidden fixed bottom-0 left-0 right-0 bg-white/90 dark:bg-black/90 backdrop-blur-xl border-t border-gray-200 dark:border-white/10 flex justify-around p-3 z-50 transition-transform duration-500 ease-in-out ${showHeader ? 'translate-y-0' : 'translate-y-full'}`}>
         <Home size={26} className="text-crimson active:scale-75 transition-transform" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} />
         <Search size={26} className="text-gray-400 active:scale-75 transition-transform" />
@@ -267,7 +267,7 @@ export default function HomePage() {
         <User size={26} className="text-gray-400 active:scale-75 transition-transform" onClick={() => user && router.push(`/profile/${user.id}`)} />
       </div>
 
-      {/* === RIGHT SIDEBAR (RESTORED) === */}
+      {/* === RIGHT SIDEBAR === */}
       <aside className="hidden xl:block fixed top-0 right-0 h-screen w-[350px] p-6 space-y-6 overflow-y-auto z-30 border-l border-gray-200 dark:border-white/5 bg-gray-50/50 dark:bg-[#050505]/50 backdrop-blur-xl">
         <div className="relative group">
           <Search className="absolute left-4 top-3.5 text-gray-400 group-focus-within:text-crimson" size={20} />
@@ -330,7 +330,7 @@ export default function HomePage() {
 }
 
 // ==========================================
-// STORY VIEWER (With Views Fix + Custom Delete Confirm)
+// STORY VIEWER (Views Fix + Custom Delete)
 // ==========================================
 function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
   const [currentIndex, setCurrentIndex] = useState(startIndex)
@@ -363,7 +363,7 @@ function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
     setLikeCount(0)
     setViewCount(0)
     setIsPaused(false)
-    setShowDeleteConfirm(false) // Reset confirm state
+    setShowDeleteConfirm(false)
 
     const recordViewAndFetchStats = async () => {
       // Record View
@@ -384,7 +384,7 @@ function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
   }, [currentIndex, story])
 
   useEffect(() => {
-    if (!story || showAnalytics || isPaused || showDeleteConfirm) return // Pause if deleting too
+    if (!story || showAnalytics || isPaused || showDeleteConfirm) return
     if (story.media_type === 'video') return
 
     const durationMs = (story.duration || 5) * 1000
@@ -437,27 +437,48 @@ function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
     }
   }
 
-  // === FIXED ANALYTICS QUERY ===
+  // === FIXED ANALYTICS (2-STEP FETCH to Avoid 400 Error) ===
   const openAnalytics = async () => {
     setIsPaused(true)
     setShowAnalytics(true)
 
-    // Correctly fetch 'profiles' relation
-    const { data: views } = await supabase
+    // 1. Fetch Views (IDs only)
+    const { data: views, error } = await supabase
       .from('story_views')
-      .select(`created_at, profiles:user_id(username, avatar_url, id)`)
+      .select('user_id, created_at')
       .eq('story_id', story.id)
       .order('created_at', { ascending: false })
 
-    const { data: likes } = await supabase.from('story_likes').select('user_id').eq('story_id', story.id)
-    const likedUserIds = new Set(likes?.map((l: any) => l.user_id))
+    if (error || !views || views.length === 0) {
+      setAnalyticsData([])
+      return
+    }
 
-    const formatted = views?.map((view: any) => ({
-      ...view,
-      user: view.profiles, // Map profiles to user for UI
-      hasLiked: view.profiles?.id ? likedUserIds.has(view.profiles.id) : false
+    // 2. Fetch Profiles for these IDs
+    const userIds = views.map((v: any) => v.user_id)
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('id, username, avatar_url')
+      .in('id', userIds)
+
+    // 3. Fetch Likes for these IDs
+    const { data: likes } = await supabase
+      .from('story_likes')
+      .select('user_id')
+      .eq('story_id', story.id)
+      .in('user_id', userIds)
+
+    const likedSet = new Set(likes?.map((l: any) => l.user_id))
+    const profileMap = new Map(profiles?.map((p: any) => [p.id, p]))
+
+    // 4. Merge
+    const formatted = views.map((view: any) => ({
+      created_at: view.created_at,
+      user: profileMap.get(view.user_id),
+      hasLiked: likedSet.has(view.user_id)
     }))
-    setAnalyticsData(formatted || [])
+
+    setAnalyticsData(formatted)
   }
 
   if (!story) return null
@@ -534,7 +555,7 @@ function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
           <button className="text-white p-2"><Send size={24} /></button>
         </div>
 
-        {/* CUSTOM DELETE MODAL */}
+        {/* Custom Delete Modal */}
         {showDeleteConfirm && (
           <div className="absolute inset-0 z-[80] bg-black/90 flex flex-col items-center justify-center p-6 animate-in fade-in">
             <div className="bg-[#1a1a1a] p-6 rounded-3xl w-full max-w-sm text-center border border-white/10">
@@ -548,7 +569,7 @@ function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
           </div>
         )}
 
-        {/* ANALYTICS DRAWER */}
+        {/* Analytics Drawer */}
         {showAnalytics && (
           <div className="absolute inset-0 z-[70] bg-black/95 animate-in slide-in-from-bottom duration-300 flex flex-col">
             <div className="p-4 border-b border-white/10 flex justify-between items-center">
@@ -580,7 +601,7 @@ function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
 }
 
 // ... Rest of the components (PostCard, etc.) ...
-// (Kept exactly same as your code)
+// (Kept exactly same)
 function StoryItem({ name, img, isAdd, onClick }: any) {
   return (
     <div onClick={onClick} className="flex flex-col items-center space-y-2 min-w-[70px] cursor-pointer group snap-center">
