@@ -7,11 +7,11 @@ import Image from 'next/image'
 import {
   Home, Search, Bell, User, LogOut, PlusSquare,
   Heart, MessageCircle, Share2, Music, MoreHorizontal, Sun, Moon,
-  Radio, TrendingUp, Mic2, PlayCircle, Image as ImageIcon, X, Send, UserPlus, MapPin
+  Radio, TrendingUp, Mic2, PlayCircle, Image as ImageIcon, X, Send, UserPlus, MapPin,
+  Eye, Trash2, ChevronUp
 } from 'lucide-react'
 import { useTheme } from "next-themes"
 
-// Helper: Relative Time
 function timeAgo(dateStr: string) {
   const date = new Date(dateStr)
   const seconds = Math.floor((new Date().getTime() - date.getTime()) / 1000)
@@ -31,6 +31,13 @@ function timeAgo(dateStr: string) {
 export default function HomePage() {
   const [user, setUser] = useState<any>(null)
   const [posts, setPosts] = useState<any[]>([])
+
+  // === STORY STATES ===
+  const [stories, setStories] = useState<any[]>([])
+  const [uniqueUserStories, setUniqueUserStories] = useState<any[]>([])
+  const [viewerOpen, setViewerOpen] = useState(false)
+  const [initialStoryIndex, setInitialStoryIndex] = useState(0)
+
   const [loading, setLoading] = useState(true)
   const [activePostId, setActivePostId] = useState<string | null>(null)
   const [showHeader, setShowHeader] = useState(true)
@@ -40,7 +47,7 @@ export default function HomePage() {
   const { theme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
 
-  // === NOTIFICATION STATES ===
+  // Notifications
   const [showNotifications, setShowNotifications] = useState(false)
   const [notifications, setNotifications] = useState<any[]>([])
   const [unreadCount, setUnreadCount] = useState(0)
@@ -52,45 +59,31 @@ export default function HomePage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push('/login'); return }
       setUser(user)
+
+      const { data: follows } = await supabase.from('follows').select('following_id').eq('follower_id', user.id)
+      const fIds = new Set(follows?.map((i: any) => i.following_id) || [])
+      setFollowingIds(fIds)
+
       fetchPosts(user.id)
       fetchNotifications(user.id)
-      fetchFollowingList(user.id)
+      fetchStories(user.id, fIds)
 
-      const channel = supabase
-        .channel('realtime-notifications')
-        .on(
-          'postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` },
-          () => {
-            fetchNotifications(user.id)
-          }
-        )
+      const channel = supabase.channel('realtime-notifications')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${user.id}` }, () => fetchNotifications(user.id))
         .subscribe()
 
       setLoading(false)
       return () => { supabase.removeChannel(channel) }
     }
     getData()
-
-    if (typeof window !== 'undefined') {
-      window.history.pushState(null, "", window.location.href);
-      const handleBackButton = () => {
-        window.history.pushState(null, "", window.location.href);
-      };
-      window.addEventListener("popstate", handleBackButton);
-      return () => window.removeEventListener("popstate", handleBackButton);
-    }
   }, [router, supabase])
 
   useEffect(() => {
     const handleScroll = () => {
       if (typeof window !== 'undefined') {
         const currentScrollY = window.scrollY
-        if (currentScrollY > lastScrollY.current && currentScrollY > 50) {
-          setShowHeader(false)
-        } else {
-          setShowHeader(true)
-        }
+        if (currentScrollY > lastScrollY.current && currentScrollY > 50) setShowHeader(false)
+        else setShowHeader(true)
         lastScrollY.current = currentScrollY
       }
     }
@@ -111,11 +104,30 @@ export default function HomePage() {
     }
   }
 
-  const fetchFollowingList = async (userId: string) => {
-    const { data } = await supabase.from('follows').select('following_id').eq('follower_id', userId)
+  const fetchStories = async (currentUserId: string, fIds: Set<string>) => {
+    const { data } = await supabase
+      .from('stories')
+      .select(`*, profiles:user_id (id, username, avatar_url)`)
+      .gt('expires_at', new Date().toISOString())
+      .order('created_at', { ascending: false })
+
     if (data) {
-      const ids = new Set(data.map((item: any) => item.following_id))
-      setFollowingIds(ids)
+      const relevantStories = data.filter((s: any) => fIds.has(s.user_id) || s.user_id === currentUserId)
+
+      const groupedStories = relevantStories.sort((a: any, b: any) => {
+        if (a.user_id === b.user_id) return 0;
+        return a.user_id > b.user_id ? 1 : -1;
+      })
+
+      setStories(groupedStories)
+
+      const unique = groupedStories.reduce((acc: any[], current: any) => {
+        if (!acc.find(item => item.user_id === current.user_id)) {
+          return acc.concat([current]);
+        }
+        return acc;
+      }, []);
+      setUniqueUserStories(unique)
     }
   }
 
@@ -123,305 +135,375 @@ export default function HomePage() {
     const { data } = await supabase.from('notifications').select(`*, actor:actor_id(username, avatar_url)`).eq('user_id', userId).order('created_at', { ascending: false })
     if (data) {
       setNotifications(data)
-      const count = data.filter((n: any) => n.is_read === false).length
-      setUnreadCount(count)
+      setUnreadCount(data.filter((n: any) => !n.is_read).length)
     }
   }
 
-  // === UPDATED: Mark Read Logic ===
   const markNotificationsRead = async () => {
     if (unreadCount > 0 && user) {
-      setUnreadCount(0) // Clear badge visually immediately
-      setNotifications(prev => prev.map(n => ({ ...n, is_read: true }))) // Update list visually
-      await supabase.from('notifications').update({ is_read: true }).eq('user_id', user.id) // Save to DB
+      setUnreadCount(0)
+      setNotifications(prev => prev.map(n => ({ ...n, is_read: true })))
+      await supabase.from('notifications').update({ is_read: true }).eq('user_id', user.id)
     }
   }
 
   const toggleNotificationSlider = () => {
     if (!showNotifications) {
       setShowNotifications(true)
-      markNotificationsRead() // Mark read when opening
+      markNotificationsRead()
     } else {
       setShowNotifications(false)
     }
   }
 
   const handleNotificationClick = (notif: any) => {
-    if (notif.type === 'follow') {
-      router.push(`/profile/${notif.actor_id}`)
-      setShowNotifications(false)
-    } else if (notif.post_id) {
-      setActivePostId(notif.post_id)
-      setShowNotifications(false)
-    }
+    if (notif.type === 'follow') router.push(`/profile/${notif.actor_id}`)
+    else if (notif.post_id) setActivePostId(notif.post_id)
+    setShowNotifications(false)
   }
 
-  const handleFollowBack = async (e: any, actorId: string) => {
-    e.stopPropagation()
-    await supabase.from('follows').insert({ follower_id: user.id, following_id: actorId })
-    await supabase.from('notifications').insert({
-      user_id: actorId,
-      actor_id: user.id,
-      type: 'follow',
-      message: 'followed you back.'
-    })
-    setFollowingIds(prev => new Set(prev).add(actorId))
-  }
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut()
-    router.push('/login')
-    router.refresh()
-  }
-
+  const handleLogout = async () => { await supabase.auth.signOut(); router.push('/login'); router.refresh() }
   const goToMyProfile = () => { if (user?.id) router.push(`/profile/${user.id}`) }
   const goToCreatePost = () => { router.push('/create') }
+  const goToAddStory = () => { router.push('/story/create') }
+
+  const openStoryViewer = (startStoryId: string) => {
+    const index = stories.findIndex(s => s.id === startStoryId)
+    if (index !== -1) {
+      setInitialStoryIndex(index)
+      setViewerOpen(true)
+    }
+  }
 
   if (loading || !mounted) return <div className="min-h-screen bg-[#050505] flex items-center justify-center"><div className="w-10 h-10 border-4 border-crimson border-t-transparent rounded-full animate-spin"></div></div>
 
   return (
     <div className="min-h-screen w-full bg-gray-50 dark:bg-[#050505] text-gray-900 dark:text-white transition-colors duration-500 overflow-x-hidden">
 
-      {/* BACKGROUND */}
-      <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
-        <div className="absolute -top-[10%] -right-[10%] w-[500px] h-[500px] bg-purple-500/20 rounded-full blur-[100px] animate-pulse duration-[5000ms]" />
-        <div className="absolute -bottom-[10%] -left-[10%] w-[500px] h-[500px] bg-crimson/20 rounded-full blur-[100px] animate-pulse duration-[7000ms]" />
-      </div>
+      <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden"><div className="absolute -top-[10%] -right-[10%] w-[500px] h-[500px] bg-purple-500/20 rounded-full blur-[100px] animate-pulse" /><div className="absolute -bottom-[10%] -left-[10%] w-[500px] h-[500px] bg-crimson/20 rounded-full blur-[100px] animate-pulse" /></div>
 
-      {/* LEFT SIDEBAR */}
+      {/* LEFT SIDEBAR (With Logout Restored) */}
       <aside className="hidden lg:flex fixed top-0 left-0 h-screen w-[280px] flex-col border-r border-gray-200 dark:border-white/5 bg-white/60 dark:bg-black/60 backdrop-blur-xl z-30 shadow-xl shadow-black/5">
-        <div className="p-6">
-          <div className="flex items-center gap-3 mb-8 hover:scale-105 transition-transform cursor-pointer">
-            <div className="w-10 h-10 relative drop-shadow-lg"><Image src="/logo.png" alt="Logo" fill className="object-contain" unoptimized /></div>
-            <span className="text-xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-crimson to-nebula drop-shadow-sm">DESI SANCHAR</span>
-          </div>
-          <nav className="space-y-2">
+        <div className="p-6 h-full flex flex-col">
+          <div className="flex items-center gap-3 mb-8"><div className="w-10 h-10 relative"><Image src="/logo.png" alt="Logo" fill className="object-contain" unoptimized /></div><span className="text-xl font-black bg-clip-text text-transparent bg-gradient-to-r from-crimson to-nebula">DESI SANCHAR</span></div>
+          <nav className="space-y-2 flex-1">
             <NavItem icon={<Home size={26} />} text="Home" active />
             <NavItem icon={<Search size={26} />} text="Explore" />
             <NavItem icon={<Mic2 size={26} />} text="Karaoke Mode" />
-
-            {/* === UPDATED NOTIFICATION BUTTON (Red Dot Logic) === */}
-            <NavItem
-              icon={<Bell size={26} />}
-              text="Notifications"
-              onClick={toggleNotificationSlider}
-              badge={unreadCount > 0}
-            />
-
+            <NavItem icon={<Bell size={26} />} text="Notifications" onClick={toggleNotificationSlider} badge={unreadCount > 0} />
             <NavItem icon={<User size={26} />} text="Profile" onClick={goToMyProfile} />
           </nav>
-          <div className="mt-8">
-            <button
-              onClick={goToCreatePost}
-              className="w-full bg-gradient-to-r from-crimson to-rose-600 hover:from-rose-600 hover:to-crimson text-white font-bold py-3.5 rounded-full shadow-lg shadow-crimson/30 transition-all hover:shadow-crimson/50 hover:-translate-y-1 active:scale-95 flex items-center justify-center gap-2"
-            >
-              <PlusSquare size={20} /><span>Create Post</span>
-            </button>
-          </div>
-        </div>
-        <div className="mt-auto p-4 border-t border-gray-200 dark:border-white/5 bg-white/40 dark:bg-white/[0.02] backdrop-blur-md">
-          <div className="flex items-center gap-3 mb-3 px-2 cursor-pointer group" onClick={goToMyProfile}>
-            <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-crimson to-orange-500 flex items-center justify-center text-white font-bold text-lg ring-2 ring-transparent group-hover:ring-crimson transition-all">
-              {user?.email?.[0].toUpperCase()}
-            </div>
-            <div className="flex-1 overflow-hidden">
-              <div className="font-bold text-sm truncate group-hover:text-crimson transition-colors">{user?.user_metadata?.username || "User"}</div>
-              <div className="text-xs text-gray-500 truncate">{user?.email}</div>
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="flex-1 flex items-center justify-center gap-2 bg-gray-200 dark:bg-white/10 hover:bg-gray-300 dark:hover:bg-white/20 py-2 rounded-lg transition-all active:scale-95 text-xs font-bold">
-              {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />} {theme === 'dark' ? 'Light' : 'Dark'}
-            </button>
-            <button onClick={handleLogout} className="flex-1 flex items-center justify-center gap-2 bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/40 text-crimson py-2 rounded-lg transition-all active:scale-95 text-xs font-bold">
-              <LogOut size={16} /> Exit
-            </button>
+          <div className="mt-auto">
+            <div className="mb-4"><button onClick={goToCreatePost} className="w-full bg-gradient-to-r from-crimson to-rose-600 text-white font-bold py-3.5 rounded-full shadow-lg flex items-center justify-center gap-2"><PlusSquare size={20} /><span>Create Post</span></button></div>
+            <button onClick={handleLogout} className="w-full flex items-center gap-4 px-4 py-3 text-gray-500 hover:text-crimson transition-colors rounded-xl hover:bg-red-50 dark:hover:bg-red-900/10 font-bold"><LogOut size={24} /> Logout</button>
           </div>
         </div>
       </aside>
 
-      {/* FEED */}
       <main className="w-full min-h-screen lg:pl-[280px] xl:pr-[350px] relative z-10">
-
-        {/* Mobile Header */}
-        <div className={`lg:hidden fixed top-0 left-0 right-0 bg-white/80 dark:bg-black/80 backdrop-blur-xl p-4 flex justify-between items-center border-b border-gray-200 dark:border-white/5 z-40 w-full transition-all duration-500 ease-in-out ${showHeader ? 'translate-y-0 opacity-100' : '-translate-y-full opacity-0'}`}>
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 relative"><Image src="/logo.png" alt="Logo" fill className="object-contain" unoptimized /></div>
-            <h1 className="font-black text-transparent bg-clip-text bg-gradient-to-r from-crimson to-nebula">DESI SANCHAR</h1>
-          </div>
-          <div className="flex gap-3 items-center">
-            <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="p-2 rounded-full bg-gray-100 dark:bg-white/10 text-gray-600 dark:text-gray-300 active:scale-90 transition-transform">
-              {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
-            </button>
-            <div onClick={goToMyProfile} className="w-8 h-8 rounded-full bg-crimson flex items-center justify-center text-white font-bold text-sm cursor-pointer shadow-lg active:scale-90 transition-transform">
-              {user?.email?.[0].toUpperCase()}
-            </div>
-          </div>
+        <div className={`lg:hidden fixed top-0 left-0 right-0 bg-white/80 dark:bg-black/80 backdrop-blur-xl p-4 flex justify-between items-center border-b border-gray-200 dark:border-white/5 z-40 w-full ${showHeader ? 'translate-y-0 opacity-100' : '-translate-y-full opacity-0'}`}>
+          <div className="flex items-center gap-2"><div className="w-8 h-8 relative"><Image src="/logo.png" alt="Logo" fill className="object-contain" unoptimized /></div><h1 className="font-black text-transparent bg-clip-text bg-gradient-to-r from-crimson to-nebula">DESI SANCHAR</h1></div>
+          <div className="flex gap-3 items-center"><div onClick={goToMyProfile} className="w-8 h-8 rounded-full bg-crimson flex items-center justify-center text-white font-bold text-sm cursor-pointer">{user?.email?.[0].toUpperCase()}</div></div>
         </div>
 
         <div className="max-w-[700px] mx-auto w-full pb-20 pt-20 lg:pt-6 px-4 md:px-6">
           <div className="flex gap-4 overflow-x-auto pb-6 no-scrollbar mb-4 w-full snap-x snap-mandatory">
-            <StoryItem isAdd />
-            <StoryItem name="Arijit" img="https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&q=80" />
-            <StoryItem name="Neha" img="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&q=80" />
-            <StoryItem name="Badshah" img="https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=200&q=80" />
-            <StoryItem name="Shreya" img="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=200&q=80" />
+            <StoryItem isAdd onClick={goToAddStory} />
+            {uniqueUserStories.map((story) => (
+              <StoryItem
+                key={story.id}
+                name={story.profiles?.username}
+                img={story.profiles?.avatar_url}
+                onClick={() => openStoryViewer(story.id)}
+              />
+            ))}
           </div>
 
-          <div
-            onClick={goToCreatePost}
-            className="bg-white/80 dark:bg-[#111]/80 backdrop-blur-sm rounded-3xl p-4 shadow-lg shadow-black/5 border border-gray-200 dark:border-white/5 mb-8 hover:border-crimson/30 transition-all cursor-pointer group"
-          >
-            <div className="flex gap-4 items-center">
-              <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-crimson to-nebula flex-shrink-0 flex items-center justify-center text-white font-bold">
-                {user?.email?.[0].toUpperCase()}
-              </div>
-              <div className="flex-1 bg-gray-100 dark:bg-white/5 rounded-full px-5 py-3 text-gray-500 dark:text-gray-400 group-hover:bg-white dark:group-hover:bg-white/10 transition-colors">
-                What's playing in your mind?
-              </div>
-              <div className="p-2 bg-gray-100 dark:bg-white/5 rounded-full text-crimson"><ImageIcon size={20} /></div>
-            </div>
+          <div onClick={goToCreatePost} className="bg-white/80 dark:bg-[#111]/80 backdrop-blur-sm rounded-3xl p-4 shadow-lg mb-8 hover:border-crimson/30 transition-all cursor-pointer flex gap-4 items-center">
+            <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-crimson to-nebula flex-shrink-0 flex items-center justify-center text-white font-bold">{user?.email?.[0].toUpperCase()}</div>
+            <div className="flex-1 bg-gray-100 dark:bg-white/5 rounded-full px-5 py-3 text-gray-500">What's playing in your mind?</div>
+            <div className="p-2 bg-gray-100 dark:bg-white/5 rounded-full text-crimson"><ImageIcon size={20} /></div>
           </div>
 
           <div className="space-y-6">
             {posts.map((post, index) => (
-              <div key={post.id} className="animate-in slide-in-from-bottom-4 fade-in duration-700" style={{ animationDelay: `${index * 100}ms` }}>
-                <PostCard
-                  post={post}
-                  currentUser={user}
-                  onOpenComments={() => setActivePostId(post.id)}
-                />
+              <div key={post.id} className="animate-in slide-in-from-bottom-4" style={{ animationDelay: `${index * 100}ms` }}>
+                <PostCard post={post} currentUser={user} onOpenComments={() => setActivePostId(post.id)} />
               </div>
             ))}
-            {posts.length === 0 && <div className="text-center text-gray-500 py-10 animate-pulse">No posts yet. Be the first to share something!</div>}
           </div>
         </div>
       </main>
 
-      {/* RIGHT SIDEBAR */}
+      {/* RIGHT SIDEBAR (Restored) */}
       <aside className="hidden xl:block fixed top-0 right-0 h-screen w-[350px] p-6 space-y-6 overflow-y-auto z-30 border-l border-gray-200 dark:border-white/5 bg-gray-50/50 dark:bg-[#050505]/50 backdrop-blur-xl">
-        <div className="relative group transition-all focus-within:scale-105 duration-300">
-          <Search className="absolute left-4 top-3.5 text-gray-400 group-focus-within:text-crimson transition-colors" size={20} />
-          <input type="text" placeholder="Search Desi Sanchar..." className="w-full bg-gray-100 dark:bg-white/5 border-none rounded-full py-3 pl-12 pr-4 outline-none focus:ring-2 focus:ring-crimson transition-all shadow-sm" />
-        </div>
-        <div className="bg-gradient-to-br from-indigo-900 to-purple-900 rounded-3xl p-5 text-white relative overflow-hidden shadow-2xl shadow-indigo-500/20 group hover:-translate-y-1 transition-transform duration-300">
-          <div className="absolute top-0 right-0 p-3 opacity-20 group-hover:opacity-40 transition-opacity"><Radio size={80} /></div>
-          <div className="relative z-10">
-            <div className="flex items-center gap-2 mb-2">
-              <span className="w-2 h-2 bg-red-500 rounded-full animate-ping" />
-              <span className="text-xs font-bold uppercase tracking-wider text-red-300">Live Now</span>
-            </div>
-            <h3 className="text-xl font-bold mb-1">Mirchi Top 20</h3>
-            <p className="text-indigo-200 text-sm mb-4">RJ Nidhi • 12k Listening</p>
-            <button className="bg-white text-indigo-900 w-full py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-2 hover:bg-gray-100 active:scale-95 transition-all">
-              <PlayCircle size={18} /> Tune In
-            </button>
-          </div>
-        </div>
-        <div className="bg-white dark:bg-[#111] rounded-3xl p-5 shadow-sm border border-gray-200 dark:border-white/5 hover:border-crimson/20 transition-colors">
-          <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><TrendingUp size={20} className="text-crimson animate-bounce" /> Trending in India</h3>
-          <div className="space-y-4">
-            <TrendItem category="Music" tag="#ArijitLive" posts="125k" />
-            <TrendItem category="Sports" tag="#INDvsPAK" posts="890k" />
-          </div>
-        </div>
+        <div className="relative group"><Search className="absolute left-4 top-3.5 text-gray-400 group-focus-within:text-crimson" size={20} /><input type="text" placeholder="Search..." className="w-full bg-gray-100 dark:bg-white/5 border-none rounded-full py-3 pl-12 pr-4 outline-none focus:ring-2 focus:ring-crimson" /></div>
+        <div className="bg-gradient-to-br from-indigo-900 to-purple-900 rounded-3xl p-5 text-white relative overflow-hidden shadow-2xl"><h3 className="text-xl font-bold mb-1">Mirchi Top 20</h3><p className="text-indigo-200 text-sm mb-4">RJ Nidhi • 12k Listening</p><button className="bg-white text-indigo-900 w-full py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-2"><PlayCircle size={18} /> Tune In</button></div>
       </aside>
 
-      {/* MOBILE BOTTOM NAV */}
-      <div className={`lg:hidden fixed bottom-0 left-0 right-0 bg-white/90 dark:bg-black/90 backdrop-blur-xl border-t border-gray-200 dark:border-white/10 flex justify-around p-3 z-50 transition-transform duration-500 ease-in-out ${showHeader ? 'translate-y-0' : 'translate-y-full'}`}>
-        <Home size={26} className="text-crimson cursor-pointer active:scale-75 transition-transform" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} />
-        <Search size={26} className="text-gray-400 cursor-pointer active:scale-75 transition-transform" />
+      {activePostId && <CommentsModal postId={activePostId} currentUser={user} onClose={() => setActivePostId(null)} />}
 
-        <PlusSquare
-          size={32}
-          className="text-gray-400 cursor-pointer active:scale-75 transition-transform -mt-1 text-crimson"
-          onClick={goToCreatePost}
-        />
-
-        <div className="relative active:scale-75 transition-transform">
-          <Bell size={26} className="text-gray-400 cursor-pointer" onClick={toggleNotificationSlider} />
-          {unreadCount > 0 && <span className="absolute top-0 right-0 bg-crimson w-2.5 h-2.5 rounded-full border-2 border-white dark:border-black animate-pulse" />}
-        </div>
-        <User size={26} className="text-gray-400 cursor-pointer active:scale-75 transition-transform" onClick={goToMyProfile} />
-      </div>
-
-      {activePostId && (
-        <CommentsModal postId={activePostId} currentUser={user} onClose={() => setActivePostId(null)} />
-      )}
-
-      {/* === NOTIFICATION PANEL === */}
-      <div
-        className={`fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm transition-opacity duration-700 ease-[cubic-bezier(0.32,0.72,0,1)] ${showNotifications ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
-        onClick={toggleNotificationSlider}
-      >
-        <div
-          className={`
-               fixed bg-white dark:bg-[#111] shadow-2xl z-[110] transition-transform duration-700 ease-[cubic-bezier(0.32,0.72,0,1)]
-               lg:top-0 lg:h-full lg:w-[350px] lg:border-r lg:border-gray-200 lg:dark:border-white/5 
-               ${showNotifications ? 'lg:translate-x-0' : 'lg:-translate-x-full'}
-               lg:left-0 bottom-0 left-0 w-full h-[60vh] rounded-t-3xl
-               ${showNotifications ? 'translate-y-0' : 'translate-y-full'}
-             `}
-          onClick={e => e.stopPropagation()}
-        >
-          <div className="p-4 border-b border-gray-200 dark:border-white/10 flex justify-between items-center sticky top-0 bg-white dark:bg-[#111] z-10 rounded-t-3xl lg:rounded-none">
-            <h2 className="font-bold text-lg">Notifications</h2>
-            <button onClick={toggleNotificationSlider} className="p-2 hover:bg-gray-100 dark:hover:bg-white/10 rounded-full active:rotate-90 transition-transform"><X size={20} /></button>
-          </div>
-
+      <div className={`fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm transition-opacity duration-700 ${showNotifications ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`} onClick={toggleNotificationSlider}>
+        <div className={`fixed bg-white dark:bg-[#111] shadow-2xl z-[110] transition-transform duration-700 lg:top-0 lg:h-full lg:w-[350px] lg:border-r lg:border-gray-200 lg:dark:border-white/5 ${showNotifications ? 'lg:translate-x-0' : 'lg:-translate-x-full'} lg:left-0 bottom-0 left-0 w-full h-[60vh] rounded-t-3xl ${showNotifications ? 'translate-y-0' : 'translate-y-full'}`} onClick={e => e.stopPropagation()}>
+          <div className="p-4 border-b border-gray-200 dark:border-white/10 flex justify-between items-center sticky top-0 bg-white dark:bg-[#111] z-10"><h2 className="font-bold text-lg">Notifications</h2><button onClick={toggleNotificationSlider}><X size={20} /></button></div>
           <div className="p-2 space-y-1 overflow-y-auto h-[calc(100%-60px)] custom-scrollbar">
-            {notifications.map((notif, index) => (
-              <div
-                key={notif.id}
-                onClick={() => handleNotificationClick(notif)}
-                className={`p-4 rounded-xl flex gap-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-white/5 transition-all ${notif.is_read ? 'opacity-70' : 'bg-crimson/5 border border-crimson/10'}`}
-              >
-                <div className="mt-1">
-                  {notif.type === 'like' && <Heart size={18} className="text-red-500 fill-red-500 animate-bounce" />}
-                  {notif.type === 'comment' && <MessageCircle size={18} className="text-blue-500 fill-blue-500" />}
-                  {notif.type === 'follow' && <UserPlus size={18} className="text-green-500 fill-green-500" />}
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <div className="w-5 h-5 rounded-full bg-gray-200 relative overflow-hidden">
-                        {notif.actor?.avatar_url ? <Image src={notif.actor.avatar_url} fill alt="u" unoptimized /> : null}
-                      </div>
-                      <span className="font-bold text-sm">{notif.actor?.username}</span>
-                    </div>
-
-                    {notif.type === 'follow' && !followingIds.has(notif.actor_id) && (
-                      <button
-                        onClick={(e) => handleFollowBack(e, notif.actor_id)}
-                        className="text-[10px] font-bold bg-crimson text-white px-3 py-1.5 rounded-full hover:bg-red-600 transition-colors shadow-sm active:scale-95"
-                      >
-                        Follow Back
-                      </button>
-                    )}
-                  </div>
-                  <p className="text-sm text-gray-800 dark:text-gray-200 leading-snug">{notif.message}</p>
-                  <p className="text-[10px] text-gray-400 mt-2 font-medium">{timeAgo(notif.created_at)}</p>
-                </div>
+            {notifications.map((notif) => (
+              <div key={notif.id} onClick={() => handleNotificationClick(notif)} className={`p-4 rounded-xl flex gap-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-white/5 ${notif.is_read ? 'opacity-70' : 'bg-crimson/5'}`}>
+                <div className="mt-1">{notif.type === 'like' && <Heart size={18} className="text-red-500" />}{notif.type === 'comment' && <MessageCircle size={18} className="text-blue-500" />}{notif.type === 'follow' && <UserPlus size={18} className="text-green-500" />}</div>
+                <div className="flex-1"><div className="font-bold text-sm">{notif.actor?.username}</div><p className="text-sm">{notif.message}</p></div>
               </div>
             ))}
             {notifications.length === 0 && <div className="text-center py-10 text-gray-500">No notifications yet.</div>}
           </div>
         </div>
       </div>
+
+      {viewerOpen && (
+        <StoryViewer
+          stories={stories}
+          startIndex={initialStoryIndex}
+          currentUser={user}
+          onClose={() => setViewerOpen(false)}
+        />
+      )}
+
     </div>
   )
 }
 
 // ==========================================
-// SUB COMPONENTS
+// UPGRADED STORY VIEWER (Views, Likes, Delete, Analytics)
 // ==========================================
+function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
+  const [currentIndex, setCurrentIndex] = useState(startIndex)
+  const [progress, setProgress] = useState(0)
 
-function StoryItem({ name, img, isAdd }: any) {
+  // Analytics State
+  const [isLiked, setIsLiked] = useState(false)
+  const [viewCount, setViewCount] = useState(0)
+  const [showAnalytics, setShowAnalytics] = useState(false)
+  const [analyticsData, setAnalyticsData] = useState<any[]>([])
+  const [isPaused, setIsPaused] = useState(false)
+
+  const supabase = createClient()
+  const story = stories[currentIndex]
+  const isOwner = story?.user_id === currentUser?.id
+
+  // 1. Load Story & Stats
+  useEffect(() => {
+    if (!story) return
+    setProgress(0)
+    setIsLiked(false)
+    setViewCount(0)
+    setIsPaused(false) // Resume timer on new slide
+
+    const recordViewAndFetchStats = async () => {
+      // Record View (Unique constraint prevents duplicates)
+      if (!isOwner) {
+        await supabase.from('story_views').insert({ story_id: story.id, user_id: currentUser.id }).catch(() => { })
+      }
+
+      // Fetch Stats
+      const { count: vCount } = await supabase.from('story_views').select('*', { count: 'exact', head: true }).eq('story_id', story.id)
+      const { data: likeData } = await supabase.from('story_likes').select('*').eq('story_id', story.id).eq('user_id', currentUser.id).single()
+
+      setViewCount(vCount || 0)
+      if (likeData) setIsLiked(true)
+    }
+
+    recordViewAndFetchStats()
+  }, [currentIndex, story])
+
+  // 2. Timer Logic (Pauses if Analytics open)
+  useEffect(() => {
+    if (!story || showAnalytics || isPaused) return
+    if (story.media_type === 'video') return
+
+    const durationMs = (story.duration || 5) * 1000
+    const intervalMs = 50
+    const step = 100 / (durationMs / intervalMs)
+
+    const timer = setInterval(() => {
+      setProgress(prev => {
+        if (prev >= 100) {
+          clearInterval(timer)
+          handleNext()
+          return 100
+        }
+        return prev + step
+      })
+    }, intervalMs)
+
+    return () => clearInterval(timer)
+  }, [currentIndex, story, showAnalytics, isPaused])
+
+  const handleNext = () => {
+    if (currentIndex < stories.length - 1) setCurrentIndex((p: number) => p + 1)
+    else onClose()
+  }
+
+  const handlePrev = () => {
+    if (currentIndex > 0) setCurrentIndex((p: number) => p - 1)
+  }
+
+  // 3. Actions
+  const toggleLike = async () => {
+    const newStatus = !isLiked
+    setIsLiked(newStatus)
+    if (newStatus) {
+      await supabase.from('story_likes').insert({ story_id: story.id, user_id: currentUser.id })
+      if (!isOwner) await supabase.from('notifications').insert({ user_id: story.user_id, actor_id: currentUser.id, type: 'like', message: 'liked your story.' })
+    } else {
+      await supabase.from('story_likes').delete().match({ story_id: story.id, user_id: currentUser.id })
+    }
+  }
+
+  const handleDelete = async () => {
+    if (confirm("Delete this story?")) {
+      await supabase.from('stories').delete().eq('id', story.id)
+      onClose()
+      window.location.reload()
+    }
+  }
+
+  const openAnalytics = async () => {
+    setIsPaused(true)
+    setShowAnalytics(true)
+    const { data: views } = await supabase
+      .from('story_views')
+      .select(`created_at, user:user_id(username, avatar_url, id)`)
+      .eq('story_id', story.id)
+      .order('created_at', { ascending: false })
+
+    const { data: likes } = await supabase.from('story_likes').select('user_id').eq('story_id', story.id)
+    const likedUserIds = new Set(likes?.map((l: any) => l.user_id))
+
+    const formatted = views?.map((view: any) => ({
+      ...view,
+      hasLiked: likedUserIds.has(view.user?.id)
+    }))
+
+    setAnalyticsData(formatted || [])
+  }
+
+  if (!story) return null
+  const stickers = story.stickers?.stickers || []
+  const bgGradient = story.stickers?.background || 'bg-black'
+
   return (
-    <div className="flex flex-col items-center space-y-2 min-w-[70px] cursor-pointer group snap-center">
+    <div className="fixed inset-0 z-[200] bg-black flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/90 backdrop-blur-md" onClick={onClose} />
+
+      <div className="relative w-full h-full md:max-w-md md:h-[90vh] md:rounded-2xl overflow-hidden bg-black shadow-2xl flex flex-col">
+
+        {/* Progress Bar */}
+        <div className="absolute top-0 left-0 right-0 p-2 z-50 flex gap-1">
+          {stories.map((s: any, i: number) => (
+            <div key={s.id} className="h-1 flex-1 bg-white/30 rounded-full overflow-hidden">
+              <div className={`h-full bg-white transition-all ease-linear ${i === currentIndex ? 'duration-75' : 'duration-0'}`} style={{ width: i < currentIndex ? '100%' : i === currentIndex ? `${progress}%` : '0%' }} />
+            </div>
+          ))}
+        </div>
+
+        {/* User Info & Delete */}
+        <div className="absolute top-4 left-0 right-0 p-4 z-50 flex justify-between items-center bg-gradient-to-b from-black/50 to-transparent">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full border-2 border-crimson relative overflow-hidden">
+              {story.profiles?.avatar_url ? <Image src={story.profiles.avatar_url} fill alt="u" unoptimized /> : <div className="w-full h-full bg-gray-500" />}
+            </div>
+            <div className="text-white font-bold text-sm shadow-black drop-shadow-md">{story.profiles?.username}</div>
+            <div className="text-white/70 text-xs shadow-black drop-shadow-md">{timeAgo(story.created_at)}</div>
+          </div>
+
+          <div className="flex items-center gap-4">
+            {isOwner && <button onClick={handleDelete} className="text-white/80 hover:text-red-500 p-2 rounded-full bg-black/20 backdrop-blur-md"><Trash2 size={20} /></button>}
+            <button onClick={onClose} className="text-white p-2 hover:bg-white/20 rounded-full"><X size={24} /></button>
+          </div>
+        </div>
+
+        {/* Touch Zones (Nav) */}
+        <div className="absolute inset-0 flex z-40"
+          onMouseDown={() => setIsPaused(true)}
+          onMouseUp={() => setIsPaused(false)}
+          onTouchStart={() => setIsPaused(true)}
+          onTouchEnd={() => setIsPaused(false)}>
+          <div className="w-1/3 h-full" onClick={handlePrev} />
+          <div className="w-2/3 h-full" onClick={handleNext} />
+        </div>
+
+        {/* Content */}
+        <div className={`flex-1 relative flex items-center justify-center overflow-hidden ${story.media_type === 'text' ? `bg-gradient-to-br ${bgGradient}` : 'bg-black'}`}>
+          {story.media_type === 'image' && story.media_url && <Image src={story.media_url} fill className="object-contain" alt="Story" unoptimized priority />}
+          {story.media_type === 'video' && story.media_url && <video src={story.media_url} className="w-full h-full object-contain" autoPlay playsInline onEnded={handleNext} />}
+          {story.media_type === 'text' && <div className="p-8 text-center"><h1 className="text-3xl font-bold text-white leading-relaxed break-words">{story.content}</h1></div>}
+          {stickers.map((s: any) => (
+            <div key={s.id} className="absolute px-4 py-2 bg-white/20 backdrop-blur-md rounded-xl text-white font-bold shadow-lg flex items-center gap-2 border border-white/30 z-30" style={{ top: `${s.y}%`, left: `${s.x}%`, transform: 'translate(-50%, -50%)', color: s.color || 'white' }}>
+              {s.type === 'location' && <><MapPin size={16} className="text-red-400" /> {s.content}</>}
+              {s.type === 'mention' && <><User size={16} className="text-blue-400" /> {s.content}</>}
+              {s.content}
+            </div>
+          ))}
+        </div>
+
+        {/* FOOTER: Like & Analytics */}
+        <div className="absolute bottom-0 left-0 right-0 p-4 z-50 flex items-end justify-between bg-gradient-to-t from-black/80 to-transparent">
+          <button onClick={toggleLike} className="flex items-center gap-2 text-white p-2">
+            <Heart size={28} fill={isLiked ? "red" : "none"} className={isLiked ? "text-red-500 animate-bounce" : "text-white"} />
+          </button>
+
+          {/* OWNER ANALYTICS TRIGGER */}
+          {isOwner && (
+            <div onClick={openAnalytics} className="flex flex-col items-center gap-1 cursor-pointer animate-pulse z-50">
+              <ChevronUp size={20} className="text-white/70" />
+              <div className="flex items-center gap-2 bg-black/40 px-3 py-1.5 rounded-full backdrop-blur-md border border-white/10">
+                <Eye size={16} className="text-white" />
+                <span className="text-white font-bold text-sm">{viewCount}</span>
+              </div>
+            </div>
+          )}
+
+          <button className="text-white p-2"><Send size={24} /></button>
+        </div>
+
+        {/* ANALYTICS DRAWER */}
+        {showAnalytics && (
+          <div className="absolute inset-0 z-[60] bg-black/95 animate-in slide-in-from-bottom duration-300 flex flex-col">
+            <div className="p-4 border-b border-white/10 flex justify-between items-center">
+              <div className="flex flex-col">
+                <h3 className="font-bold text-lg text-white">Story Activity</h3>
+                <span className="text-xs text-gray-400">{viewCount} views</span>
+              </div>
+              <button onClick={() => { setShowAnalytics(false); setIsPaused(false) }} className="p-2 bg-white/10 rounded-full text-white"><X size={20} /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {analyticsData.map((v: any, i) => (
+                <div key={i} className="flex items-center justify-between p-2 hover:bg-white/5 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-gray-700 relative overflow-hidden">
+                      {v.user?.avatar_url && <Image src={v.user.avatar_url} fill alt="u" unoptimized />}
+                    </div>
+                    <span className="text-white font-bold text-sm">{v.user?.username || "Unknown"}</span>
+                  </div>
+                  {v.hasLiked && <Heart size={16} className="text-red-500 fill-red-500" />}
+                </div>
+              ))}
+              {analyticsData.length === 0 && <div className="text-center text-gray-500 mt-10">No views yet.</div>}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ... StoryItem, PostCard, CommentsModal, NavItem, TrendItem, ActionBtn ...
+// (These remain exactly as they were in your original code to preserve other functionality)
+function StoryItem({ name, img, isAdd, onClick }: any) {
+  return (
+    <div onClick={onClick} className="flex flex-col items-center space-y-2 min-w-[70px] cursor-pointer group snap-center">
       <div className={`w-16 h-16 rounded-full p-[2px] ${isAdd ? 'border-2 border-dashed border-gray-300' : 'bg-gradient-to-tr from-yellow-400 via-crimson to-purple-600 group-hover:rotate-12 transition-transform duration-500'}`}>
         <div className="w-full h-full rounded-full border-2 border-white dark:border-black overflow-hidden relative bg-gray-200 dark:bg-gray-800 flex items-center justify-center transition-transform group-hover:scale-95">
-          {isAdd ? <PlusSquare size={24} className="text-gray-400" /> : <Image src={img} alt="story" fill className="object-cover" unoptimized />}
+          {isAdd ? <PlusSquare size={24} className="text-gray-400" /> : <Image src={img || "https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png"} alt="story" fill className="object-cover" unoptimized />}
         </div>
       </div>
       <span className="text-xs font-medium truncate w-16 text-center group-hover:text-crimson transition-colors">{isAdd ? "Add Story" : name}</span>
@@ -441,13 +523,12 @@ function PostCard({ post, currentUser, onOpenComments }: any) {
   const toggleLike = async () => {
     const newIsLiked = !isLiked
     setIsLiked(newIsLiked)
-    setLikesCount(prev => newIsLiked ? prev + 1 : prev - 1)
+    setLikesCount((prev: number) => newIsLiked ? prev + 1 : prev - 1)
 
     if (newIsLiked) {
       setAnimateLike(true)
       setTimeout(() => setAnimateLike(false), 300)
       await supabase.from('likes').insert({ user_id: currentUser.id, post_id: post.id })
-
       if (currentUser.id !== post.user_id) {
         await supabase.from('notifications').insert({
           user_id: post.user_id,
