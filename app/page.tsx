@@ -188,11 +188,10 @@ export default function HomePage() {
 
       <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden"><div className="absolute -top-[10%] -right-[10%] w-[500px] h-[500px] bg-purple-500/20 rounded-full blur-[100px] animate-pulse" /><div className="absolute -bottom-[10%] -left-[10%] w-[500px] h-[500px] bg-crimson/20 rounded-full blur-[100px] animate-pulse" /></div>
 
-      {/* === LEFT SIDEBAR (PROFILE + LOGOUT) === */}
+      {/* === LEFT SIDEBAR === */}
       <aside className="hidden lg:flex fixed top-0 left-0 h-screen w-[280px] flex-col border-r border-gray-200 dark:border-white/5 bg-white/60 dark:bg-black/60 backdrop-blur-xl z-30 shadow-xl shadow-black/5">
         <div className="p-6 h-full flex flex-col">
           <div className="flex items-center gap-3 mb-8"><div className="w-10 h-10 relative"><Image src="/logo.png" alt="Logo" fill className="object-contain" unoptimized /></div><span className="text-xl font-black bg-clip-text text-transparent bg-gradient-to-r from-crimson to-nebula">DESI SANCHAR</span></div>
-
           <nav className="space-y-2 flex-1">
             <NavItem icon={<Home size={26} />} text="Home" active />
             <NavItem icon={<Search size={26} />} text="Explore" />
@@ -200,10 +199,8 @@ export default function HomePage() {
             <NavItem icon={<Bell size={26} />} text="Notifications" onClick={toggleNotificationSlider} badge={unreadCount > 0} />
             <NavItem icon={<User size={26} />} text="Profile" onClick={goToMyProfile} />
           </nav>
-
           <div className="mt-auto">
             <div className="mb-6"><button onClick={goToCreatePost} className="w-full bg-gradient-to-r from-crimson to-rose-600 text-white font-bold py-3.5 rounded-full shadow-lg flex items-center justify-center gap-2"><PlusSquare size={20} /><span>Create Post</span></button></div>
-
             {/* Profile Card & Logout */}
             <div className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-white/50 dark:bg-white/5 border border-gray-200 dark:border-white/5 hover:bg-gray-100 dark:hover:bg-white/10 transition-colors cursor-pointer group" onClick={goToMyProfile}>
               <div className="flex items-center gap-3">
@@ -225,6 +222,7 @@ export default function HomePage() {
         </div>
       </aside>
 
+      {/* === MAIN CONTENT === */}
       <main className="w-full min-h-screen lg:pl-[280px] xl:pr-[350px] relative z-10">
         <div className={`lg:hidden fixed top-0 left-0 right-0 bg-white/80 dark:bg-black/80 backdrop-blur-xl p-4 flex justify-between items-center border-b border-gray-200 dark:border-white/5 z-40 w-full ${showHeader ? 'translate-y-0 opacity-100' : '-translate-y-full opacity-0'}`}>
           <div className="flex items-center gap-2"><div className="w-8 h-8 relative"><Image src="/logo.png" alt="Logo" fill className="object-contain" unoptimized /></div><h1 className="font-black text-transparent bg-clip-text bg-gradient-to-r from-crimson to-nebula">DESI SANCHAR</h1></div>
@@ -260,7 +258,16 @@ export default function HomePage() {
         </div>
       </main>
 
-      {/* === RIGHT SIDEBAR (RADIO + TRENDS) === */}
+      {/* === MOBILE BOTTOM NAV (RESTORED) === */}
+      <div className={`lg:hidden fixed bottom-0 left-0 right-0 bg-white/90 dark:bg-black/90 backdrop-blur-xl border-t border-gray-200 dark:border-white/10 flex justify-around p-3 z-50 transition-transform duration-500 ease-in-out ${showHeader ? 'translate-y-0' : 'translate-y-full'}`}>
+        <Home size={26} className="text-crimson active:scale-75 transition-transform" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} />
+        <Search size={26} className="text-gray-400 active:scale-75 transition-transform" />
+        <PlusSquare size={32} className="text-gray-400 active:scale-75 transition-transform -mt-1 text-crimson" onClick={() => router.push('/create')} />
+        <div className="relative active:scale-75 transition-transform"><Bell size={26} className="text-gray-400" onClick={toggleNotificationSlider} />{unreadCount > 0 && <span className="absolute top-0 right-0 bg-crimson w-2.5 h-2.5 rounded-full border-2 border-white dark:border-black animate-pulse" />}</div>
+        <User size={26} className="text-gray-400 active:scale-75 transition-transform" onClick={() => user && router.push(`/profile/${user.id}`)} />
+      </div>
+
+      {/* === RIGHT SIDEBAR (RESTORED) === */}
       <aside className="hidden xl:block fixed top-0 right-0 h-screen w-[350px] p-6 space-y-6 overflow-y-auto z-30 border-l border-gray-200 dark:border-white/5 bg-gray-50/50 dark:bg-[#050505]/50 backdrop-blur-xl">
         <div className="relative group">
           <Search className="absolute left-4 top-3.5 text-gray-400 group-focus-within:text-crimson" size={20} />
@@ -323,54 +330,61 @@ export default function HomePage() {
 }
 
 // ==========================================
-// STORY VIEWER (Segments Fixed)
+// STORY VIEWER (With Views Fix + Custom Delete Confirm)
 // ==========================================
 function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
   const [currentIndex, setCurrentIndex] = useState(startIndex)
   const [progress, setProgress] = useState(0)
 
-  // Analytics
+  // Analytics State
   const [isLiked, setIsLiked] = useState(false)
+  const [likeCount, setLikeCount] = useState(0)
   const [viewCount, setViewCount] = useState(0)
   const [showAnalytics, setShowAnalytics] = useState(false)
   const [analyticsData, setAnalyticsData] = useState<any[]>([])
   const [isPaused, setIsPaused] = useState(false)
 
+  // Custom Delete Confirm State
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+
   const supabase = createClient()
   const story = stories[currentIndex]
   const isOwner = story?.user_id === currentUser?.id
 
-  // --- NEW: LOGIC TO GET USER-SPECIFIC STORIES FOR PROGRESS BARS ---
-  // 1. Find who owns the current story
+  // Progress logic
   const currentOwnerId = story?.user_id
-  // 2. Filter all stories to get ONLY this user's stories
   const userStories = stories.filter((s: any) => s.user_id === currentOwnerId)
-  // 3. Find the index of the current story WITHIN this user's list
   const localIndex = userStories.findIndex((s: any) => s.id === story?.id)
-  // ----------------------------------------------------------------
 
   useEffect(() => {
     if (!story) return
     setProgress(0)
     setIsLiked(false)
+    setLikeCount(0)
     setViewCount(0)
     setIsPaused(false)
+    setShowDeleteConfirm(false) // Reset confirm state
 
     const recordViewAndFetchStats = async () => {
+      // Record View
       if (!isOwner) {
         await supabase.from('story_views').insert({ story_id: story.id, user_id: currentUser.id }).catch(() => { })
       }
+      // Get Counts
       const { count: vCount } = await supabase.from('story_views').select('*', { count: 'exact', head: true }).eq('story_id', story.id)
-      const { data: likeData } = await supabase.from('story_likes').select('*').eq('story_id', story.id).eq('user_id', currentUser.id).single()
-
       setViewCount(vCount || 0)
+
+      const { count: lCount } = await supabase.from('story_likes').select('*', { count: 'exact', head: true }).eq('story_id', story.id)
+      setLikeCount(lCount || 0)
+
+      const { data: likeData } = await supabase.from('story_likes').select('*').eq('story_id', story.id).eq('user_id', currentUser.id).single()
       if (likeData) setIsLiked(true)
     }
     recordViewAndFetchStats()
   }, [currentIndex, story])
 
   useEffect(() => {
-    if (!story || showAnalytics || isPaused) return
+    if (!story || showAnalytics || isPaused || showDeleteConfirm) return // Pause if deleting too
     if (story.media_type === 'video') return
 
     const durationMs = (story.duration || 5) * 1000
@@ -389,7 +403,7 @@ function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
     }, intervalMs)
 
     return () => clearInterval(timer)
-  }, [currentIndex, story, showAnalytics, isPaused])
+  }, [currentIndex, story, showAnalytics, isPaused, showDeleteConfirm])
 
   const handleNext = () => {
     if (currentIndex < stories.length - 1) setCurrentIndex((p: number) => p + 1)
@@ -397,13 +411,14 @@ function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
   }
 
   const handlePrev = () => {
-    // If it's the first story of the user, go to previous user's last story
     if (currentIndex > 0) setCurrentIndex((p: number) => p - 1)
   }
 
   const toggleLike = async () => {
     const newStatus = !isLiked
     setIsLiked(newStatus)
+    setLikeCount((prev) => newStatus ? prev + 1 : prev - 1)
+
     if (newStatus) {
       await supabase.from('story_likes').insert({ story_id: story.id, user_id: currentUser.id })
       if (!isOwner) await supabase.from('notifications').insert({ user_id: story.user_id, actor_id: currentUser.id, type: 'like', message: 'liked your story.' })
@@ -412,24 +427,25 @@ function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
     }
   }
 
-  const handleDelete = async () => {
-    if (confirm("Delete this story?")) {
-      const { error } = await supabase.from('stories').delete().eq('id', story.id)
-      if (!error) {
-        onClose()
-        window.location.reload()
-      } else {
-        alert(error.message)
-      }
+  const performDelete = async () => {
+    const { error } = await supabase.from('stories').delete().eq('id', story.id)
+    if (!error) {
+      onClose()
+      window.location.reload()
+    } else {
+      alert("Error: " + error.message)
     }
   }
 
+  // === FIXED ANALYTICS QUERY ===
   const openAnalytics = async () => {
     setIsPaused(true)
     setShowAnalytics(true)
+
+    // Correctly fetch 'profiles' relation
     const { data: views } = await supabase
       .from('story_views')
-      .select(`created_at, user:user_id(username, avatar_url, id)`)
+      .select(`created_at, profiles:user_id(username, avatar_url, id)`)
       .eq('story_id', story.id)
       .order('created_at', { ascending: false })
 
@@ -438,7 +454,8 @@ function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
 
     const formatted = views?.map((view: any) => ({
       ...view,
-      hasLiked: likedUserIds.has(view.user?.id)
+      user: view.profiles, // Map profiles to user for UI
+      hasLiked: view.profiles?.id ? likedUserIds.has(view.profiles.id) : false
     }))
     setAnalyticsData(formatted || [])
   }
@@ -453,19 +470,16 @@ function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
 
       <div className="relative w-full h-full md:max-w-md md:h-[90vh] md:rounded-2xl overflow-hidden bg-black shadow-2xl flex flex-col">
 
-        {/* --- PROGRESS BARS (UPDATED to show only user's segments) --- */}
+        {/* Progress Bars */}
         <div className="absolute top-0 left-0 right-0 p-2 z-50 flex gap-1">
           {userStories.map((s: any, i: number) => (
             <div key={s.id} className="h-1 flex-1 bg-white/30 rounded-full overflow-hidden">
-              <div
-                className={`h-full bg-white transition-all ease-linear ${i === localIndex ? 'duration-75' : 'duration-0'}`}
-                style={{ width: i < localIndex ? '100%' : i === localIndex ? `${progress}%` : '0%' }}
-              />
+              <div className={`h-full bg-white transition-all ease-linear ${i === localIndex ? 'duration-75' : 'duration-0'}`} style={{ width: i < localIndex ? '100%' : i === localIndex ? `${progress}%` : '0%' }} />
             </div>
           ))}
         </div>
 
-        {/* User Info */}
+        {/* Header */}
         <div className="absolute top-4 left-0 right-0 p-4 z-50 flex justify-between items-center bg-gradient-to-b from-black/50 to-transparent">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full border-2 border-crimson relative overflow-hidden">
@@ -475,7 +489,7 @@ function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
             <div className="text-white/70 text-xs shadow-black drop-shadow-md">{timeAgo(story.created_at)}</div>
           </div>
           <div className="flex items-center gap-4">
-            {isOwner && <button onClick={handleDelete} className="text-white/80 hover:text-red-500 p-2 rounded-full bg-black/20 backdrop-blur-md"><Trash2 size={20} /></button>}
+            {isOwner && <button onClick={() => setShowDeleteConfirm(true)} className="text-white/80 hover:text-red-500 p-2 rounded-full bg-black/20 backdrop-blur-md"><Trash2 size={20} /></button>}
             <button onClick={onClose} className="text-white p-2 hover:bg-white/20 rounded-full"><X size={24} /></button>
           </div>
         </div>
@@ -498,12 +512,17 @@ function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
           ))}
         </div>
 
-        <div className="absolute bottom-0 left-0 right-0 p-4 z-50 flex items-end justify-between bg-gradient-to-t from-black/80 to-transparent">
-          <button onClick={toggleLike} className="flex items-center gap-2 text-white p-2">
-            <Heart size={28} fill={isLiked ? "red" : "none"} className={isLiked ? "text-red-500 animate-bounce" : "text-white"} />
-          </button>
+        {/* Footer */}
+        <div className="absolute bottom-0 left-0 right-0 p-4 z-[60] flex items-end justify-between bg-gradient-to-t from-black/80 to-transparent">
+          <div className="flex items-center gap-4">
+            <button onClick={toggleLike} className="flex items-center gap-2 text-white bg-black/20 px-3 py-1.5 rounded-full backdrop-blur-md border border-white/10 hover:bg-white/10 transition-all">
+              <Heart size={20} fill={isLiked ? "red" : "none"} className={isLiked ? "text-red-500 animate-bounce" : "text-white"} />
+              <span className="text-sm font-bold">{likeCount}</span>
+            </button>
+          </div>
+
           {isOwner && (
-            <div onClick={openAnalytics} className="flex flex-col items-center gap-1 cursor-pointer animate-pulse z-50">
+            <div onClick={openAnalytics} className="flex flex-col items-center gap-1 cursor-pointer animate-pulse">
               <ChevronUp size={20} className="text-white/70" />
               <div className="flex items-center gap-2 bg-black/40 px-3 py-1.5 rounded-full backdrop-blur-md border border-white/10">
                 <Eye size={16} className="text-white" />
@@ -511,15 +530,31 @@ function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
               </div>
             </div>
           )}
+
           <button className="text-white p-2"><Send size={24} /></button>
         </div>
 
+        {/* CUSTOM DELETE MODAL */}
+        {showDeleteConfirm && (
+          <div className="absolute inset-0 z-[80] bg-black/90 flex flex-col items-center justify-center p-6 animate-in fade-in">
+            <div className="bg-[#1a1a1a] p-6 rounded-3xl w-full max-w-sm text-center border border-white/10">
+              <h3 className="text-white font-bold text-xl mb-2">Delete Story?</h3>
+              <p className="text-gray-400 mb-6">This will permanently delete this story from your profile.</p>
+              <div className="flex gap-3 justify-center">
+                <button onClick={() => setShowDeleteConfirm(false)} className="px-6 py-2.5 rounded-xl bg-white/10 text-white font-bold hover:bg-white/20 transition-colors">Cancel</button>
+                <button onClick={performDelete} className="px-6 py-2.5 rounded-xl bg-red-500 text-white font-bold hover:bg-red-600 transition-colors shadow-lg shadow-red-500/20">Delete</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ANALYTICS DRAWER */}
         {showAnalytics && (
-          <div className="absolute inset-0 z-[60] bg-black/95 animate-in slide-in-from-bottom duration-300 flex flex-col">
+          <div className="absolute inset-0 z-[70] bg-black/95 animate-in slide-in-from-bottom duration-300 flex flex-col">
             <div className="p-4 border-b border-white/10 flex justify-between items-center">
               <div className="flex flex-col">
                 <h3 className="font-bold text-lg text-white">Story Activity</h3>
-                <span className="text-xs text-gray-400">{viewCount} views</span>
+                <span className="text-xs text-gray-400">{viewCount} views • {likeCount} likes</span>
               </div>
               <button onClick={() => { setShowAnalytics(false); setIsPaused(false) }} className="p-2 bg-white/10 rounded-full text-white"><X size={20} /></button>
             </div>
@@ -544,6 +579,8 @@ function StoryViewer({ stories, startIndex, currentUser, onClose }: any) {
   )
 }
 
+// ... Rest of the components (PostCard, etc.) ...
+// (Kept exactly same as your code)
 function StoryItem({ name, img, isAdd, onClick }: any) {
   return (
     <div onClick={onClick} className="flex flex-col items-center space-y-2 min-w-[70px] cursor-pointer group snap-center">
